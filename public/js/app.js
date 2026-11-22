@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.4</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.5</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -287,7 +287,7 @@ function summaryScreen() {
     <section class="card"><h3>Exercises</h3>${w.exercises.filter(e => e.sets.some(s => s.done)).map(e => {
       const ex = EX[e.exId]; const ws = e.sets.filter(s => s.done && !s.warmup); const best = ws.reduce((b, s) => E.e1rm(s.weight, s.reps) >= E.e1rm(b.weight, b.reps) ? s : b, ws[0] || {});
       const pr = e.sets.find(s => s.pr);
-      return `<button class="row link" data-a="exDetail" data-v="${e.exId}"><div class="thumb sm">${muscleIcon(ex.primary, ex.secondary, 34)}</div><div class="grow"><b>${ex.name}</b><small class="muted">${ws.length} sets · best ${best.reps}${unitOf(ex)} × ${best.weight ?? 'BW'}${best.weight ? ' kg' : ''}</small></div>${pr ? `<span class="pill gold">${ICON.trophy} ${pr.pr.split(' ')[0]}</span>` : ''}</button>`;
+      return `<button class="row link" data-a="exDetail" data-v="${e.exId}"><div class="thumb sm">${muscleIcon(ex.primary, ex.secondary, 44)}</div><div class="grow"><b>${ex.name}</b><small class="muted">${ws.length} sets · best ${best.reps}${unitOf(ex)} × ${best.weight ?? 'BW'}${best.weight ? ' kg' : ''}</small></div>${pr ? `<span class="pill gold">${ICON.trophy} ${pr.pr.split(' ')[0]}</span>` : ''}</button>`;
     }).join('')}</section>
     <button class="btn primary big wide" data-a="tab" data-v="${S.view.from || 'train'}">Done</button><div class="spacer"></div></div>`;
 }
@@ -329,7 +329,7 @@ function progressScreen() {
     <div class="grid3"><section class="card stat"><small>Volume</small><b class="c-blue">${Math.round(cur.vol).toLocaleString()} kg</b>${delta(cur.vol, avg.vol)}</section>
       <section class="card stat"><small>Sets</small><b class="c-orange">${cur.sets}</b>${delta(cur.sets, avg.sets)}</section>
       <section class="card stat"><small>Time</small><b class="c-green">${fmtMin(cur.dur)}</b>${delta(cur.dur, avg.dur)}</section></div>
-    <section class="card"><h3>Exercise progress</h3>${exIds.length ? exIds.map(id => { const b = E.bestFor(S, id); return `<button class="row link" data-a="exDetail" data-v="${id}"><div class="thumb sm">${muscleIcon(EX[id].primary, EX[id].secondary, 34)}</div><span class="grow">${EX[id].name}</span><small class="muted">${b.e1rm ? `e1RM ${E.fmtKg(Math.round(b.e1rm * 10) / 10)}` : `best ${b.reps}`}</small>${ICON.chev}</button>`; }).join('') : '<p class="muted small">Log a workout to see graphs here.</p>'}</section>
+    <section class="card"><h3>Exercise progress</h3>${exIds.length ? exIds.map(id => { const b = E.bestFor(S, id); return `<button class="row link" data-a="exDetail" data-v="${id}"><div class="thumb sm">${muscleIcon(EX[id].primary, EX[id].secondary, 44)}</div><span class="grow">${EX[id].name}</span><small class="muted">${b.e1rm ? `e1RM ${E.fmtKg(Math.round(b.e1rm * 10) / 10)}` : `best ${b.reps}`}</small>${ICON.chev}</button>`; }).join('') : '<p class="muted small">Log a workout to see graphs here.</p>'}</section>
     <section class="card"><h3>${d.toLocaleDateString('en-AU', { month: 'long' })}</h3><p class="muted small">${wDays.size} workouts this month</p><div class="cal">${cal}</div></section>
     <section class="card"><h3>Latest workouts</h3>${S.workouts.slice(0, 6).map(w => { const st = E.workoutStats(w); return `<button class="row link" data-a="viewWorkout" data-v="${w.id}" data-from="progress"><div class="grow"><b>${esc(w.name)}</b><small class="muted">${shortDate(w.startedAt)} · ${fmtDur(st.dur)}</small></div>${st.prs ? `<span class="pill gold">${ICON.trophy} ${st.prs}</span>` : ''}</button>`; }).join('') || '<p class="muted small">Nothing yet.</p>'}</section>
     <div class="spacer"></div></div>`;
@@ -406,7 +406,7 @@ function sheetHtml() {
   } else if (sh.type === 'bar') {
     inner = `<h3>Bar weight for ${EX[sh.id].name}</h3><p class="muted small">Only change if your gym's bar differs.</p><div class="seg">${[0, 7, 10, 15, 20].map(v => `<button data-a="setBar" data-v="${v}">${v} kg</button>`).join('')}</div><button class="btn ghost wide" data-a="setBar" data-v="">Reset to default</button>`;
   }
-  return `<div class="sheet-bg" data-a="closeSheet"></div><div class="sheet"><div class="grab"></div>${inner}</div>`;
+  return `<div class="sheet-bg" data-a="closeSheet"></div><div class="sheet" id="sheet"><div class="grab"></div><button class="sheet-x" data-a="closeSheet" aria-label="Close">${ICON.x}</button>${inner}</div>`;
 }
 
 function swapSheet(sh) {
@@ -417,14 +417,14 @@ function swapSheet(sh) {
   const aiIds = (sh.aiPicks || []).map(p => p.exId);
   const picks = add ? [] : E.swapOptions(S, cur.exId, [...inSession, ...aiIds]);
   const list = EXERCISES.filter(e => E.isAvailable(e, S) && !inSession.includes(e.id) && (q ? e.name.toLowerCase().includes(q) || e.primary.some(m => MUSCLES[m].toLowerCase().includes(q)) : add || e.primary.some(m => ex.primary.includes(m))));
-  const item = (e) => `<button class="row link pick" data-a="swapPick" data-v="${e.id}"><div class="thumb sm">${muscleIcon(e.primary, e.secondary, 34)}</div><div class="grow"><b>${e.name}</b><small class="muted">${e.reason}</small></div></button>`;
+  const item = (e) => `<button class="row link pick" data-a="swapPick" data-v="${e.id}"><div class="thumb sm">${muscleIcon(e.primary, e.secondary, 44)}</div><div class="grow"><b>${e.name}</b><small class="muted">${e.reason}</small></div></button>`;
   const reasons = [['taken', 'Equipment taken'], ['discomfort', 'Discomfort'], ['dislike', "Don't like it"], ['nogym', "Gym doesn't have this"]];
   return `<h3>${add ? 'Add exercise' : `Swap ${ex.name}`}</h3>
     ${!add ? `<div class="chips">${reasons.map(([k, l]) => `<button class="chip ${sh.reason === k ? 'on' : ''}" data-a="swapReason" data-v="${k}">${l}</button>`).join('')}</div>` : ''}
     ${sh.reason === 'nogym' ? `<div class="card inset"><p class="small">Which one is missing? It'll be removed from your gym permanently.</p><div class="chips">${ex.equip.map(k => `<button class="chip" data-a="removeEquip" data-v="${k}">${EQUIPMENT[k]}</button>`).join('') || '<span class="muted small">No equipment needed</span>'}</div></div>` : ''}
     ${sh.reason === 'dislike' ? '<p class="small accent">It won\'t be suggested again (restore in Settings).</p>' : ''}
     ${!add ? `<div class="askrow"><input id="swapAsk" class="search" placeholder="Ask Claude, e.g. shoulder niggly, need pain-free option" value="${esc(sh.ask || '')}"><button class="btn small ai" data-a="swapAsk" ${S.busy ? 'disabled' : ''}>${S.busy === 'swap' ? '<span class="spinner sm"></span>' : ICON.spark}</button></div>` : ''}
-    ${sh.aiPicks?.length ? `<h4>${ICON.spark} Claude suggests</h4>${sh.aiPicks.map(p => EX[p.exId] ? `<button class="row link pick" data-a="swapPick" data-v="${p.exId}"><div class="thumb sm">${muscleIcon(EX[p.exId].primary, EX[p.exId].secondary, 34)}</div><div class="grow"><b>${EX[p.exId].name}</b><small class="accent">${esc(p.why)}</small></div></button>` : '').join('')}` : ''}
+    ${sh.aiPicks?.length ? `<h4>${ICON.spark} Claude suggests</h4>${sh.aiPicks.map(p => EX[p.exId] ? `<button class="row link pick" data-a="swapPick" data-v="${p.exId}"><div class="thumb sm">${muscleIcon(EX[p.exId].primary, EX[p.exId].secondary, 44)}</div><div class="grow"><b>${EX[p.exId].name}</b><small class="accent">${esc(p.why)}</small></div></button>` : '').join('')}` : ''}
     ${picks.length && !q ? `<h4>Best alternatives</h4>${picks.map(item).join('')}` : ''}
     <input id="swapSearch" class="search" placeholder="Search exercises or muscles" value="${esc(sh.q || '')}">
     <div class="swaplist">${list.filter(e => q || !picks.includes(e)).slice(0, 25).map(item).join('')}</div>`;
@@ -722,6 +722,26 @@ document.addEventListener('submit', async (ev) => {
   if (ev.target.id !== 'authForm') return; ev.preventDefault();
   const f = new FormData(ev.target); S.authError = '';
   try { await DB.signIn(f.get('email'), f.get('password')); } catch (e) { S.authError = 'Sign in failed. Check your email and password.'; render(); }
+});
+
+// Drag a sheet down to close it (from the handle, or anywhere when scrolled to the top).
+let sd = null;
+document.addEventListener('touchstart', (ev) => {
+  const sh = ev.target.closest('#sheet'); if (!sh) return;
+  if (sh.scrollTop > 0 && !ev.target.closest('.grab')) return;
+  sd = { sh, y: ev.touches[0].clientY, t: Date.now(), dy: 0 };
+}, { passive: true });
+document.addEventListener('touchmove', (ev) => {
+  if (!sd) return; const dy = ev.touches[0].clientY - sd.y;
+  if (dy <= 0) { if (sd.dy === 0) sd = null; else { sd.dy = 0; sd.sh.style.transform = ''; } return; }
+  ev.preventDefault(); sd.dy = dy; sd.sh.style.transition = 'none'; sd.sh.style.transform = `translateY(${dy}px)`;
+}, { passive: false });
+document.addEventListener('touchend', () => {
+  if (!sd) return; const { sh, dy, t } = sd; sd = null;
+  const fast = dy > 40 && dy / (Date.now() - t) > 0.5;
+  sh.style.transition = 'transform .22s ease';
+  if (dy > 110 || fast) { sh.style.transform = 'translateY(100%)'; setTimeout(() => A.closeSheet(), 200); }
+  else sh.style.transform = '';
 });
 
 // Swipe left on an exercise row to swap.
