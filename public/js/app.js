@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.2</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.3</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -242,13 +242,13 @@ function exerciseScreen() {
   const rows = e.sets.map((s, j) => {
     const label = s.warmup ? 'W' : String(++workN);
     const pb = E.plateBreakdown(ex, s.weight, S);
-    const plates = pb ? `<div class="plates" title="${pb.perSide.join(' + ')}">${pb.perSide.map(p => `<i style="--h:${16 + p * 1.1}px;background:${E.PLATE_COLOURS[p]}"></i>`).join('')}<span class="barend"></span></div>` : '<div class="plates none"></div>';
+    const plates = pb ? `<div class="plates">${pb.perSide.map(p => `<i style="height:${E.PLATE_HEIGHT[p]}px;background:${E.PLATE_COLOURS[p]};color:${E.PLATE_TEXT[p]}">${E.fmtKg(p)}</i>`).join('')}</div>` : '<div class="plates none"></div>';
     return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''}">
       <button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>
       <button class="cell" data-a="editSet" data-i="${i}" data-j="${j}" data-f="reps">${s.reps}<small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></button>
       <button class="cell" data-a="editSet" data-i="${i}" data-j="${j}" data-f="weight">${s.weight != null ? E.fmtKg(s.weight) : 'BW'}<small>${s.weight != null ? wLabel(ex) : ''}</small></button>
       ${plates}
-    </div>${s.pr ? `<div class="prlabel">${ICON.trophy} ${s.pr}</div>` : ''}${pb && !s.done && !s.warmup && j === e.sets.findIndex(x => !x.done) ? `<div class="perside">Per side: ${pb.perSide.length ? pb.perSide.map(E.fmtKg).join(' + ') : 'empty bar'}${pb.bar ? ` · bar ${pb.bar} kg` : ''}</div>` : ''}`;
+    </div>${s.pr ? `<div class="prlabel">${ICON.trophy} ${s.pr}</div>` : ''}`;
   }).join('');
   const next = a.exercises.findIndex((x, k) => k > i && x.sets.some(s => !s.done));
   const rest = a.rest;

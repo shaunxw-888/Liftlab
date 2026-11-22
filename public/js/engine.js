@@ -404,8 +404,10 @@ export function swapOptions(state, exId, inSession = []) {
 }
 
 // ---------- plates ----------
-export const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
-export const PLATE_COLOURS = { 25: '#e5484d', 20: '#3b82f6', 15: '#f5c518', 10: '#22c55e', 5: '#e8e8e8', 2.5: '#e5484d', 1.25: '#a1a1aa' };
+export const PLATES = [20, 15, 10, 5, 2.5, 1.25]; // 25s skipped: not reliably available at Shaun's gym
+export const PLATE_COLOURS = { 25: '#e5484d', 20: '#3b82f6', 15: '#f5c518', 10: '#22c55e', 5: '#ececec', 2.5: '#c9c9d0', 1.25: '#6b6b73' };
+export const PLATE_TEXT = { 25: '#4a0d0f', 20: '#06224d', 15: '#3d2e00', 10: '#052e14', 5: '#2a2a2f', 2.5: '#26262b', 1.25: '#f4f4f5' };
+export const PLATE_HEIGHT = { 25: 58, 20: 56, 15: 48, 10: 42, 5: 36, 2.5: 32, 1.25: 32 };
 export function barWeight(ex, state) {
   const o = state.barOverrides?.[ex.id];
   if (o != null) return o;

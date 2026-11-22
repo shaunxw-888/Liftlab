@@ -130,7 +130,7 @@ input.title-input { background: transparent; border: 0; font-size: 30px; font-we
 .exhead .micon { background: var(--card); border-radius: 18px; padding: 6px; width: 76px; height: 76px; flex: none; }
 .badge { display: flex; gap: 8px; align-items: center; background: var(--accent-soft); color: #cfe0ff; border-radius: 14px; padding: 10px 12px; font-size: 14px; font-weight: 600; }
 .badge svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
-.sethead, .setrow { display: grid; grid-template-columns: 64px 1fr 1.2fr 92px; gap: 10px; align-items: center; }
+.sethead, .setrow { display: grid; grid-template-columns: 60px 1fr 1.15fr 104px; gap: 10px; align-items: center; }
 .sethead { color: var(--muted); font-size: 14px; padding: 12px 4px 6px; text-align: center; }
 .sets { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 .setnum, .cell { height: 64px; border-radius: 16px; background: var(--card); font-size: 26px; font-weight: 800; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; border: 2px solid var(--line); }
@@ -147,8 +147,8 @@ input.title-input { background: transparent; border: 0; font-size: 30px; font-we
 .plates { height: 64px; display: flex; align-items: center; gap: 2px; position: relative; }
 .plates::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 6px; margin-top: -3px; background: #d4d4d8; border-radius: 3px; z-index: 0; }
 .plates.none::before { display: none; }
-.plates i { position: relative; z-index: 1; width: 9px; height: min(var(--h), 56px); border-radius: 3px; margin-left: 2px; }
-.plates i:first-child { margin-left: 22px; }
+.plates i { position: relative; z-index: 1; width: 15px; border-radius: 3px; margin-left: 2px; font-style: normal; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: -.02em; }
+.plates i:first-child { margin-left: 8px; }
 .restbar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); background: #141418ee; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--accent); border-radius: 22px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; z-index: 6; overflow: hidden; box-shadow: 0 10px 40px #000a; }
 .restbar button { font-size: 18px; font-weight: 700; padding: 6px; }
 .restbar .big { font-size: 30px; }
