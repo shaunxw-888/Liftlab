@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.5.1</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.6</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -236,7 +236,7 @@ function sessionScreen() {
 
 // ---------------- exercise logging ----------------
 function exerciseScreen() {
-  const a = S.active; const i = S.view.i; const e = a?.exercises[i];
+  const a = currentSession(); const preview = !S.active; const i = S.view.i; const e = a?.exercises[i];
   if (!e) { S.view = { name: 'session' }; return sessionScreen(); }
   const ex = EX[e.exId]; const t = e.target; const u = unitOf(ex);
   let workN = 0;
@@ -245,7 +245,7 @@ function exerciseScreen() {
     const pb = E.plateBreakdown(ex, s.weight, S);
     const plates = pb ? `<div class="plates">${pb.perSide.map(p => `<i style="height:${E.PLATE_HEIGHT[p]}px;background:${E.PLATE_COLOURS[p]};color:${E.PLATE_TEXT[p]}"><span>${E.fmtKg(p)}</span></i>`).join('')}</div>` : '<div class="plates none"></div>';
     return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''}">
-      <button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>
+      ${preview ? `<div class="setnum">${label}</div>` : `<button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>`}
       <label class="cell"><input class="setin" inputmode="numeric" pattern="[0-9]*" data-i="${i}" data-j="${j}" data-f="reps" value="${s.reps ?? ''}"><small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></label>
       <label class="cell"><input class="setin" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="weight" value="${s.weight != null ? E.fmtKg(s.weight) : ''}" placeholder="BW"><small>${wLabel(ex)}</small></label>
       ${plates}
@@ -257,15 +257,18 @@ function exerciseScreen() {
     <header class="top"><button class="icon-btn" data-a="openSession">${ICON.back}</button><span></span>
       <button class="icon-btn" data-a="swapOpen" data-v="${i}" aria-label="Swap">${ICON.swap}</button></header>
     <div class="exhead">${muscleIcon(ex.primary, ex.secondary, 64)}<div><h1>${ex.name}</h1><small class="muted">${ex.primary.map(m => MUSCLES[m]).join(', ')}${e.superset ? ' · Superset' : ''}</small></div></div>
+    ${preview ? `<div class="badge muted-badge">Preview. Edit anything here, then tap Start workout.</div>` : ''}
     <div class="badge">${ICON.spark} ${esc(t.reason)}</div>
     <div class="chips pad"><button class="chip" data-a="restCycle" data-v="${i}">${ICON.timer} Rest ${fmtDur((e.rest ?? ex.rest) * 1000)}</button><span class="chip muted">${t.lo}–${t.hi} ${u || 'reps'}</span>${ex.perSide ? '<span class="chip muted">per side</span>' : ''}</div>
     <div class="sethead"><span>Set</span><span>${u === 's' ? 'Secs' : u === 'm' ? 'Metres' : 'Reps'}</span><span>${ex.loading === 'dumbbell' ? 'kg each' : 'Total kg'}</span><span></span></div>
     <div class="sets">${rows}</div>
     <button class="btn dashed wide" data-a="addSet" data-v="${i}">+ Add set</button>
+    ${(() => { const h = E.exerciseHistory(S, e.exId).slice(0, 3); return h.length ? `<section class="card"><h3>Last sessions</h3>${h.map(x => `<div class="row"><small class="muted">${shortDate(x.at)}</small><span>${x.sets.map(z => `${z.reps}${u}×${z.weight ?? 'BW'}`).join(', ')}</span></div>`).join('')}</section>` : ''; })()}
     <section class="card"><h3>Notes</h3><textarea id="noteIn" data-ex="${e.exId}" placeholder="Seat height, grip, cues… carries over to next time">${esc(S.notes[e.exId] || '')}</textarea></section>
-    ${next >= 0 ? `<button class="btn wide" data-a="openEx" data-v="${next}">Next: ${EX[a.exercises[next].exId].name} ${ICON.chev}</button>` : `<button class="btn primary wide" data-a="openSession">Back to session</button>`}
+    ${preview ? `<button class="btn primary big wide" data-a="startFrom" data-v="${i}">Start workout</button>${next >= 0 ? `<button class="btn wide" data-a="openEx" data-v="${next}">Next: ${EX[a.exercises[next].exId].name} ${ICON.chev}</button>` : ''}`
+      : next >= 0 ? `<button class="btn wide" data-a="openEx" data-v="${next}">Next: ${EX[a.exercises[next].exId].name} ${ICON.chev}</button>` : `<button class="btn primary wide" data-a="openSession">Back to session</button>`}
     <div class="spacer"></div>
-    ${rest ? `<div class="restbar"><span class="kicker">REST</span><button data-a="restAdd" data-v="-15">-15s</button><span class="mono big" id="rest-time">${fmtDur(rest.end - Date.now())}</span><button data-a="restAdd" data-v="15">+15s</button><button class="icon-btn" data-a="restStop">${ICON.stop}</button><div class="restprog" id="rest-prog"></div></div>` : ''}
+    ${rest && !preview ? `<div class="restbar"><span class="kicker">REST</span><button data-a="restAdd" data-v="-15">-15s</button><span class="mono big" id="rest-time">${fmtDur(rest.end - Date.now())}</span><button data-a="restAdd" data-v="15">+15s</button><button class="icon-btn" data-a="restStop">${ICON.stop}</button><div class="restprog" id="rest-prog"></div></div>` : ''}
   </div>`;
 }
 
@@ -586,7 +589,8 @@ const A = {
   extraSession: () => openCard('extra'),
   cardMin: (d) => { S.cardMin[d.k] = Number(d.v); render(); },
   startWorkout,
-  openEx: (d) => { if (!S.active) return; S.view = { name: 'exercise', i: Number(d.v) }; render(); },
+  openEx: (d) => { if (!currentSession()) return; S.view = { name: 'exercise', i: Number(d.v) }; render(); },
+  startFrom: (d) => { startWorkout(); S.view = { name: 'exercise', i: Number(d.v) }; render(); },
   toggleSet: (d) => toggleSet(Number(d.i), Number(d.j)),
   editSet: (d) => { const s = S.active.exercises[d.i].sets[d.j]; S.sheet = { type: 'edit', i: Number(d.i), j: Number(d.j), f: d.f, value: s[d.f], applyRest: !s.done }; render(); },
   sheetAdj: (d) => { const inp = document.getElementById('sheetVal'); const v = Math.max(0, (Number(inp.value) || 0) + Number(d.v)); inp.value = Math.round(v * 100) / 100; },
@@ -598,13 +602,13 @@ const A = {
     if (!s.warmup && ((sh.f === 'weight' && v != null && e.target.weight != null && v < e.target.weight - 0.01) || (sh.f === 'reps' && v < e.target.reps))) e.lowered = true;
     S.sheet = null; persistActive(); render();
   },
-  addSet: (d) => { const e = S.active.exercises[d.v]; const last = [...e.sets].reverse().find(s => !s.warmup) || {}; e.sets.push({ weight: last.weight ?? e.target.weight, reps: last.reps ?? e.target.reps, done: false }); persistActive(); render(); },
+  addSet: (d) => { const e = currentSession().exercises[d.v]; const last = [...e.sets].reverse().find(s => !s.warmup) || {}; e.sets.push({ weight: last.weight ?? e.target.weight, reps: last.reps ?? e.target.reps, done: false }); persistActive(); render(); },
   rir: (d) => onRir(d.v),
   applyAdjust,
   closeSheet: () => { const sh = S.sheet; S.sheet = null; if (sh?.type === 'rir' || sh?.type === 'adjust') return advanceAfterSet(sh.i); render(); },
   restAdd: (d) => { const r = S.active?.rest; if (!r) return; r.end += Number(d.v) * 1000; r.total += Number(d.v) * 1000; persistActive(); tick(); },
   restStop: () => { S.active.rest = null; persistActive(); render(); },
-  restCycle: (d) => { const e = S.active.exercises[d.v]; const ex = EX[e.exId]; const opts = [60, 90, 120, 150, 180, 240]; const cur = e.rest ?? ex.rest; e.rest = opts[(opts.indexOf(cur) + 1) % opts.length] || 90; persistActive(); render(); },
+  restCycle: (d) => { const e = currentSession().exercises[d.v]; const ex = EX[e.exId]; const opts = [60, 90, 120, 150, 180, 240]; const cur = e.rest ?? ex.rest; e.rest = opts[(opts.indexOf(cur) + 1) % opts.length] || 90; persistActive(); render(); },
   exMenu: (d, ev) => { ev.stopPropagation(); S.sheet = { type: 'menu', i: Number(d.v) }; render(); },
   move: (d) => { const s = currentSession(); const i = S.sheet.i, k = i + Number(d.v); if (k < 0 || k >= s.exercises.length) return; [s.exercises[i], s.exercises[k]] = [s.exercises[k], s.exercises[i]]; S.sheet.i = k; persistActive(); render(); },
   supersetNext: () => { const s = currentSession(); const i = S.sheet.i; const e = s.exercises[i];
@@ -686,7 +690,7 @@ let confirmId = null;
 function confirmTwice(id) { if (confirmId === id) { confirmId = null; return true; } confirmId = id; toast('Tap delete again to confirm'); setTimeout(() => { confirmId = null; }, 3000); return false; }
 
 function updateSetField(i, j, f, raw) {
-  const e = S.active?.exercises[i]; if (!e) return;
+  const e = currentSession()?.exercises[i]; if (!e) return;
   const txt = String(raw).trim().replace(',', '.');
   const v = txt === '' ? null : Number(txt); if (v != null && (isNaN(v) || v < 0)) return render();
   const val = f === 'reps' ? Math.round(v || 0) : v;
