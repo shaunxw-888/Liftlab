@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.5</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.5.1</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -785,7 +785,14 @@ DB.onAuth(async (user) => {
   try {
     const { profile, workouts } = await DB.loadAll(user.uid);
     if (profile) applyProfile(profile);
-    S.workouts = workouts; S.loaded = true; DB.writeCache(S); render();
+    // Merge anything only saved on this phone (e.g. before Firestore rules were published) up to the cloud.
+    const local = (cache && cache.uid === user.uid) ? (cache.workouts || []) : [];
+    const ids = new Set(workouts.map(w => w.id));
+    const missing = local.filter(w => !ids.has(w.id));
+    S.workouts = [...workouts, ...missing].sort((a, b) => b.startedAt - a.startedAt);
+    missing.forEach(w => DB.saveWorkout(S, w));
+    if (!profile && S.settings) DB.saveProfile(S);
+    S.loaded = true; DB.writeCache(S); render();
   } catch (e) { console.warn('load failed', e); S.loaded = true; render(); }
 });
 function applyProfile(p) {
