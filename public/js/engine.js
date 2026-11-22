@@ -308,7 +308,8 @@ export function estimateMinutes(items) {
 export function generateSession(state, tpl, opts = {}) {
   const now = opts.now || Date.now();
   const g = goalsOf(state);
-  const minutes = opts.minutes || Number(state.settings?.minutes) || 60;
+  const mobLevel = addonLevel(state, 'mobility');
+  const minutes = (opts.minutes || Number(state.settings?.minutes) || 60) - (mobLevel === 'off' ? 0 : 4);
   const plan = planWeek(state.settings);
   const freq = frequency(plan);
   const ready = readiness(state, now);
@@ -381,9 +382,10 @@ export function generateSession(state, tpl, opts = {}) {
     built.splice(built.indexOf(byPri[0]), 1);
   }
 
-  const mobN = { off: 0, light: 2, focus: 3 }[lvl('mobility')];
-  const mobility = EXERCISES.filter(e => e.tags.includes('mobility') && isAvailable(e, state)).slice(tpl.variant, tpl.variant + mobN).map(e => e.id);
-  return { templateKey: tpl.key, type: tpl.type, name: tpl.name, exercises: built, mobility, estMinutes: estimateMinutes(built) };
+  const mobN = { off: 0, light: 3, focus: 4 }[mobLevel];
+  const mobs = EXERCISES.filter(e => e.tags.includes('mobility') && isAvailable(e, state));
+  const mobility = Array.from({ length: Math.min(mobN, mobs.length) }, (_, k) => mobs[(tpl.variant + k) % mobs.length].id);
+  return { templateKey: tpl.key, type: tpl.type, name: tpl.name, exercises: built, mobility, estMinutes: estimateMinutes(built) + (mobility.length ? 4 : 0) };
 }
 
 export function buildItem(state, exId, nSets, now = Date.now(), withWarmups = false, heavy = false) {

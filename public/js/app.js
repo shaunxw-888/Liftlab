@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.3</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.4</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -222,12 +222,13 @@ function sessionScreen() {
     <header class="top"><button class="icon-btn" data-a="back">${ICON.back}</button><h1 class="small">${esc(s.name)}</h1>
       ${active ? `<span class="mono pill" id="wtimer">${fmtDur(Date.now() - s.startedAt)}</span>` : '<span></span>'}</header>
     <div class="ready-row pad">${muscles.map(m => `<span class="rchip" style="--c:${heatColor(ready[m])}">${MUSCLES[m]} ${ready[m]}%</span>`).join('')}</div>
-    <div class="row pad"><b class="count">${s.exercises.length} exercises · ~${E.estimateMinutes(s.exercises)} min</b><div class="row tight"><button class="btn small ai" data-a="askOpen">${ICON.spark} Ask Claude</button><button class="btn small" data-a="addExercise">+ Add</button></div></div>
+    <div class="row pad"><b class="count">${s.exercises.length} exercises · ~${E.estimateMinutes(s.exercises) + (s.mobility?.length ? 4 : 0)} min</b><div class="row tight"><button class="btn small ai" data-a="askOpen">${ICON.spark} Ask Claude</button><button class="btn small" data-a="addExercise">+ Add</button></div></div>
     ${s.aiNote ? `<div class="badge">${ICON.spark} ${esc(s.aiNote)}</div>` : ''}
     ${lowered >= 2 && !s.trimmed ? `<div class="card note"><b>Rough day?</b><span>You've lowered a couple of lifts. Trim a set from the rest of the session? This won't count against your progression.</span><div class="row"><button class="btn small primary" data-a="trimRest">Trim</button><button class="btn small" data-a="dismissTrim">Keep going</button></div></div>` : ''}
+    ${s.mobility?.length ? `<section class="card mob"><h3>Mobility warm-up · ~4 min</h3><p class="muted small">Do these first, then start your first lift.</p>${s.mobility.map(id => { const x = EX[id]; const on = (s.mobDone || []).includes(id);
+      return `<button class="row mobrow ${on ? 'on' : ''}" data-a="mobTick" data-v="${id}"><span class="mobchk">${on ? ICON.check : ''}</span><div class="grow"><b>${x.name}</b><small class="muted">${x.reps[0]}–${x.reps[1]}${unitOf(x) || ' reps'}${x.perSide ? ' per side' : ''} · ${x.reason}</small></div></button>`; }).join('')}</section>` : ''}
     <p class="muted small pad">Swipe left on an exercise to swap it. Tap to open.</p>
     <div class="exlist">${rows}</div>
-    ${s.mobility?.length ? `<section class="card"><h3>During rests (mobility)</h3>${s.mobility.map(id => `<div class="row"><span>${EX[id].name}</span><small class="muted">${EX[id].reps[0]}–${EX[id].reps[1]}${unitOf(EX[id]) || ' reps'}${EX[id].perSide ? '/side' : ''}</small></div>`).join('')}</section>` : ''}
     <div class="spacer"></div>
     <div class="bottom-cta">${active ? `<button class="btn ghost" data-a="discard">${ICON.x}</button><button class="btn primary big" data-a="finish">Finish</button>` : `<button class="btn primary big wide" data-a="startWorkout">Start workout</button>`}</div>
   </div>`;
@@ -242,11 +243,11 @@ function exerciseScreen() {
   const rows = e.sets.map((s, j) => {
     const label = s.warmup ? 'W' : String(++workN);
     const pb = E.plateBreakdown(ex, s.weight, S);
-    const plates = pb ? `<div class="plates">${pb.perSide.map(p => `<i style="height:${E.PLATE_HEIGHT[p]}px;background:${E.PLATE_COLOURS[p]};color:${E.PLATE_TEXT[p]}">${E.fmtKg(p)}</i>`).join('')}</div>` : '<div class="plates none"></div>';
+    const plates = pb ? `<div class="plates">${pb.perSide.map(p => `<i style="height:${E.PLATE_HEIGHT[p]}px;background:${E.PLATE_COLOURS[p]};color:${E.PLATE_TEXT[p]}"><span>${E.fmtKg(p)}</span></i>`).join('')}</div>` : '<div class="plates none"></div>';
     return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''}">
       <button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>
-      <button class="cell" data-a="editSet" data-i="${i}" data-j="${j}" data-f="reps">${s.reps}<small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></button>
-      <button class="cell" data-a="editSet" data-i="${i}" data-j="${j}" data-f="weight">${s.weight != null ? E.fmtKg(s.weight) : 'BW'}<small>${s.weight != null ? wLabel(ex) : ''}</small></button>
+      <label class="cell"><input class="setin" inputmode="numeric" pattern="[0-9]*" data-i="${i}" data-j="${j}" data-f="reps" value="${s.reps ?? ''}"><small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></label>
+      <label class="cell"><input class="setin" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="weight" value="${s.weight != null ? E.fmtKg(s.weight) : ''}" placeholder="BW"><small>${wLabel(ex)}</small></label>
       ${plates}
     </div>${s.pr ? `<div class="prlabel">${ICON.trophy} ${s.pr}</div>` : ''}`;
   }).join('');
@@ -448,8 +449,10 @@ function mainLift(a, i) {
   const compIdx = a.exercises.filter((x, k) => k <= i && EX[x.exId].type === 'compound' && EX[x.exId].loading !== 'bodyweight').length;
   return compIdx <= 3;
 }
-function startRest(a, e) {
-  const ex = EX[e.exId]; const secs = e.superset === 'a' ? 20 : (e.rest ?? ex.rest);
+function startRest(a, e, s) {
+  const ex = EX[e.exId];
+  const lastWarm = s?.warmup && e.sets.filter(x => x.warmup).at(-1) === s;
+  const secs = s?.warmup ? (lastWarm ? 90 : 60) : e.superset === 'a' ? 20 : (e.rest ?? ex.rest);
   if (!secs) return;
   a.rest = { end: Date.now() + secs * 1000, total: secs * 1000, exName: ex.name, notified: false };
 }
@@ -463,7 +466,7 @@ function toggleSet(i, j) {
     s.pr = E.detectPR(S, e.exId, s, a.startedAt);
     if (s.pr) toast(`${ICON.trophy} ${s.pr}!`, 'gold');
   }
-  startRest(a, e); if (a.rest) a.rest.setKey = `${i}-${j}`;
+  startRest(a, e, s); if (a.rest) a.rest.setKey = `${i}-${j}`;
   const working = e.sets.filter(x => !x.warmup);
   const isFirstWorking = !s.warmup && working.indexOf(s) === 0;
   persistActive();
@@ -630,6 +633,7 @@ const A = {
   trimRest: () => { const a = S.active; a.exercises.forEach(e => { if (e.sets.every(s => !s.done)) { const k = e.sets.map(s => !s.warmup).lastIndexOf(true); if (e.sets.filter(s => !s.warmup).length > 2) e.sets.splice(k, 1); } }); a.trimmed = true; persistActive(); toast('Trimmed. Rough day noted.'); render(); },
   dismissTrim: () => { S.active.trimmed = true; S.active.roughDismissed = true; persistActive(); render(); },
   finish: finishWorkout,
+  mobTick: (d) => { const s = currentSession(); const l = s.mobDone || []; s.mobDone = l.includes(d.v) ? l.filter(x => x !== d.v) : [...l, d.v]; if (S.active) persistActive(); render(); },
   askOpen: () => { S.sheet = { type: 'ask', text: '' }; render(); },
   askQuick: (d) => { const t = document.getElementById('askIn'); t.value = t.value ? `${t.value}. ${d.v}` : d.v; },
   askSend: () => reworkSession(document.getElementById('askIn').value.trim()),
@@ -681,6 +685,20 @@ const A = {
 let confirmId = null;
 function confirmTwice(id) { if (confirmId === id) { confirmId = null; return true; } confirmId = id; toast('Tap delete again to confirm'); setTimeout(() => { confirmId = null; }, 3000); return false; }
 
+function updateSetField(i, j, f, raw) {
+  const e = S.active?.exercises[i]; if (!e) return;
+  const txt = String(raw).trim().replace(',', '.');
+  const v = txt === '' ? null : Number(txt); if (v != null && (isNaN(v) || v < 0)) return render();
+  const val = f === 'reps' ? Math.round(v || 0) : v;
+  const s = e.sets[j]; s[f] = val;
+  // Carry the change forward to every later set that isn't done yet.
+  if (!s.warmup) e.sets.forEach((x, k) => { if (k > j && !x.done && !x.warmup) x[f] = val; });
+  if (!s.warmup && ((f === 'weight' && val != null && e.target.weight != null && val < e.target.weight - 0.01) || (f === 'reps' && val < e.target.reps))) e.lowered = true;
+  persistActive(); render();
+}
+document.addEventListener('focusin', (ev) => { if (ev.target.classList?.contains('setin')) setTimeout(() => ev.target.select(), 0); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.classList?.contains('setin')) ev.target.blur(); });
+
 // ---------------- events ----------------
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-a]'); if (!el) return;
@@ -693,6 +711,7 @@ document.addEventListener('change', (ev) => {
   if (el.dataset.a === 'draftGoal') { const st = draft().settings; st.goals = { ...(st.goals || {}), [el.dataset.f]: el.checked }; return; }
   if (el.id === 'commentsIn') { draft().settings.comments = el.value; return; }
   if (el.dataset.a === 'draftEq') { const d = draft(); d.equipment = el.checked ? [...new Set([...d.equipment, el.dataset.f])] : d.equipment.filter(k => k !== el.dataset.f); el.closest('.chip').classList.toggle('on', el.checked); return; }
+  if (el.classList.contains('setin')) { updateSetField(Number(el.dataset.i), Number(el.dataset.j), el.dataset.f, el.value); return; }
   if (el.id === 'noteIn') { S.notes = { ...S.notes, [el.dataset.ex]: el.value }; persistProfile(); }
   if (el.id === 'wname') { const w = S.workouts.find(x => x.id === el.dataset.id); if (w) { w.name = el.value || w.name; DB.saveWorkout(S, w); } }
 });
