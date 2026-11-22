@@ -46,7 +46,7 @@ export function isAvailable(ex, state) {
 }
 
 // ---------- basketball ----------
-export function gameTimes(state, now) {
+export function gameTimes(state, now, scheduledOnly = false) {
   const out = [];
   const gd = state.settings?.gameDay;
   if (gd != null && gd !== '') {
@@ -56,15 +56,15 @@ export function gameTimes(state, now) {
       if (!(state.gameSkips || []).includes(weekKey(t))) out.push(t);
     }
   }
-  (state.games || []).forEach(t => out.push(t));
+  if (!scheduledOnly) (state.games || []).forEach(t => out.push(t));
   return out;
 }
 const GAME_LOAD = { quads: 5, hamstrings: 3, calves: 6, glutes: 4, adductors: 3, abductors: 3, lowerBack: 1 };
 
 // relation of a given day to the game: 'game' | 'before' | 'after' | null
-export function gameRelation(state, t) {
+export function gameRelation(state, t, scheduledOnly = false) {
   const ds = dayStart(t);
-  for (const g of gameTimes(state, t)) {
+  for (const g of gameTimes(state, t, scheduledOnly)) {
     const gs = dayStart(g);
     if (gs === ds) return 'game';
     if (gs === ds + DAY) return 'before';

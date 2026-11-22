@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.1</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.2</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -161,8 +161,10 @@ function homeScreen() {
   const { cards, done, total } = E.sessionCards(S, now);
   const ready = E.readiness(S, now);
   const segs = Array.from({ length: total }, (_, i) => `<i class="${i < done.length ? 'on' : ''}"></i>`).join('');
-  const rel = E.gameRelation(S, now);
+  const rel = E.gameRelation(S, now, true);
   const gd = S.settings.gameDay;
+  const recentGames = (S.games || []).filter(t => now - t < 7 * 864e5).sort((a, b) => b - a);
+  const relDay = (t) => { const d = Math.round((E.dayStart(now) - E.dayStart(t)) / 864e5); return d === 0 ? 'Today' : d === 1 ? 'Yesterday' : `${d} days ago`; };
   const wk = E.weekKey(now);
   const skipped = S.gameSkips.includes(wk);
   const cardHtml = cards.map((c, i) => {
@@ -186,7 +188,8 @@ function homeScreen() {
     ${cards.length ? `<div class="carousel">${cardHtml}</div>` : `<section class="card done-week"><h2>Week done 💪</h2><p class="muted">All ${total} sessions complete. Rest up, or start an extra session below.</p><button class="btn" data-a="extraSession">Extra session</button></section>`}
     ${gd !== '' && gd != null ? `<section class="card game"><div><b>${skipped ? 'No game this week' : `Game: ${DAYS[gd]}`}</b><small class="muted">${rel === 'before' ? 'Tomorrow. Legs are being kept fresh.' : rel === 'game' ? 'Today. Good luck!' : rel === 'after' ? 'Yesterday. Legs still recovering.' : 'Planned around automatically.'}</small></div>
       <button class="btn small" data-a="toggleGameWeek">${skipped ? 'Undo' : 'No game this week'}</button></section>` : ''}
-    <section class="card"><div class="row"><b>Played basketball today?</b><button class="btn small" data-a="logGame">Log game</button></div><p class="muted small">Extra games count towards leg recovery.</p></section>
+    <section class="card"><div class="row"><b>Played basketball?</b><button class="btn small" data-a="logGameOpen">Log game</button></div>
+      ${recentGames.length ? recentGames.map(t => `<div class="row"><span>${ICON.check} ${relDay(t)}</span><button class="btn small ghost" data-a="removeGame" data-v="${t}">Remove</button></div>`).join('') : '<p class="muted small">Extra games count towards leg recovery.</p>'}</section>
     ${done.length ? `<section class="card"><h3>Done this week</h3>${done.map(w => `<button class="row link" data-a="viewWorkout" data-v="${w.id}"><span>${ICON.check} ${esc(w.name)}</span><span class="muted">${dayName(w.startedAt)}</span></button>`).join('')}</section>` : ''}
     <section class="card"><h3>Recovery</h3><p class="muted small">Estimated from what you've trained. Tap a muscle if you're sore.</p>
       <div class="mapwrap" data-a="mapTap">${recoveryMap(ready)}</div>
@@ -372,6 +375,9 @@ function sheetHtml() {
   } else if (sh.type === 'adjust') {
     inner = `<h3>${sh.up ? 'Feeling strong' : 'Tough one'}</h3><p>${sh.up ? `That looked easy. Do the remaining sets at <b>${E.fmtKg(sh.weight)} kg</b>?` : `Drop the remaining sets to <b>${E.fmtKg(sh.weight)} kg</b> to stay in range?`}</p>
       <div class="row"><button class="btn primary big grow" data-a="applyAdjust">Yes</button><button class="btn big grow" data-a="closeSheet">Keep as is</button></div>`;
+  } else if (sh.type === 'game') {
+    inner = `<h3>When did you play?</h3><p class="muted small">Counts towards leg recovery.</p>
+      ${[0, 1, 2].map(d => `<button class="btn wide" data-a="logGame" data-v="${d}">${d === 0 ? 'Today' : d === 1 ? 'Yesterday' : '2 days ago'}</button>`).join('')}`;
   } else if (sh.type === 'ask') {
     const quick = ['Only have 30 min', "Gym's packed, avoid cables", 'Something is sore', 'Low energy today', 'More arms today'];
     inner = `<h3>${ICON.spark} Rework this session</h3><p class="muted small">Tell Claude what's going on. Completed exercises stay as they are.</p>
@@ -450,14 +456,14 @@ function startRest(a, e) {
 function toggleSet(i, j) {
   unlockAudio();
   const a = S.active; const e = a.exercises[i]; const s = e.sets[j]; const ex = EX[e.exId];
-  if (s.done) { s.done = false; s.pr = null; delete s.at; persistActive(); return render(); }
+  if (s.done) { s.done = false; s.pr = null; delete s.at; if (a.rest?.setKey === `${i}-${j}`) a.rest = null; persistActive(); return render(); }
   s.done = true; s.at = Date.now(); a.cursor = i;
   if (!s.warmup) {
     if ((s.weight != null && e.target.weight != null && s.weight < e.target.weight - 0.01) || s.reps < e.target.reps) e.lowered = true;
     s.pr = E.detectPR(S, e.exId, s, a.startedAt);
     if (s.pr) toast(`${ICON.trophy} ${s.pr}!`, 'gold');
   }
-  startRest(a, e);
+  startRest(a, e); if (a.rest) a.rest.setKey = `${i}-${j}`;
   const working = e.sets.filter(x => !x.warmup);
   const isFirstWorking = !s.warmup && working.indexOf(s) === 0;
   persistActive();
@@ -644,7 +650,10 @@ const A = {
   soreOpen: (d) => { S.sheet = { type: 'sore', m: d.v }; render(); },
   mapTap: (d, ev) => { const m = ev.target.closest('[data-muscle]')?.dataset.muscle; if (m && MUSCLES[m]) { S.sheet = { type: 'sore', m }; render(); } },
   setSore: (d) => { S.soreness = { ...S.soreness }; if (d.v === 'fresh') delete S.soreness[S.sheet.m]; else S.soreness[S.sheet.m] = { level: d.v, at: Date.now() }; S.sheet = null; persistProfile(); render(); },
-  logGame: () => { S.games = [...(S.games || []).filter(t => Date.now() - t < 14 * 864e5), Date.now()]; persistProfile(); toast('Game logged. Leg recovery updated.'); render(); },
+  logGameOpen: () => { S.sheet = { type: 'game' }; render(); },
+  logGame: (d) => { const days = Number(d.v); const t = days === 0 ? Date.now() : E.dayStart(Date.now()) - days * 864e5 + 19 * 3600e3;
+    S.games = [...(S.games || []).filter(x => Date.now() - x < 14 * 864e5), t]; S.sheet = null; persistProfile(); toast('Game logged. Leg recovery updated.'); render(); },
+  removeGame: (d) => { S.games = (S.games || []).filter(t => t !== Number(d.v)); persistProfile(); toast('Game removed'); render(); },
   toggleGameWeek: () => { const k = E.weekKey(Date.now()); S.gameSkips = S.gameSkips.includes(k) ? S.gameSkips.filter(x => x !== k) : [...S.gameSkips, k]; persistProfile(); render(); },
   draft: (d) => { const st = draft().settings; st[d.f] = d.f === 'gameDay' ? (d.v === '' ? '' : Number(d.v)) : isNaN(Number(d.v)) ? d.v : Number(d.v); render(); },
   saveSetup: async () => {
