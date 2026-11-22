@@ -334,18 +334,19 @@ export function generateSession(state, tpl, opts = {}) {
     let n = Math.round(wk / (freq[m] || 1));
     if (ready[m] < 50) n = Math.max(2, Math.round(n * 0.6)); // under-recovered: trim
     if (ready[m] < 25) return; // very sore: skip
-    n = Math.max(2, Math.min(8, n));
+    // Fewer exercises with more sets: every exercise gets at least 3 working sets.
+    n = Math.max(3, Math.min(8, n));
     const big = ['chest', 'lats', 'upperBack', 'quads', 'hamstrings'].includes(m);
     const firstCompound = big || m === 'frontDelts' || m === 'glutes';
     const ranked = rankFor(m, state, used, firstCompound, now);
     if (!ranked.length) return;
     const pickIdx = firstCompound && ranked.length > 1 ? tpl.variant % 2 : 0;
     const first = ranked[pickIdx];
-    const parts = n >= 5 && big ? [Math.ceil(n / 2), Math.floor(n / 2)] : [Math.min(4, n)];
+    const parts = n >= 7 && big ? [Math.ceil(n / 2), Math.floor(n / 2)] : [Math.min(5, n)];
     items.push({ exId: first.id, sets: parts[0], priority: idx + 1 }); used.add(first.id);
     if (parts[1]) {
       const second = rankFor(m, state, used, false, now)[0];
-      if (second) { items.push({ exId: second.id, sets: Math.min(4, parts[1]), priority: idx + 1.5 }); used.add(second.id); }
+      if (second) { items.push({ exId: second.id, sets: Math.max(3, Math.min(4, parts[1])), priority: idx + 1.5 }); used.add(second.id); }
     }
   });
 
@@ -372,14 +373,28 @@ export function generateSession(state, tpl, opts = {}) {
     if (EX[a.exId].primary[0] !== EX[b.exId].primary[0]) { a.superset = 'a'; b.superset = 'b'; }
   }
 
-  // Trim to time budget: drop sets from lowest priority, then whole exercises.
+  // Trim to time budget: shave sets above 3 first (lowest priority first), then drop whole
+  // exercises (isolations before compounds) rather than leaving lots of 2-set exercises.
+  const minSets = (b) => EX[b.exId].tags.includes('addon') ? 2 : 3;
   let guard = 0;
-  while (estimateMinutes(built) > minutes && guard++ < 60) {
+  while (estimateMinutes(built) > minutes && guard++ < 80) {
     const byPri = [...built].sort((a, b) => b.priority - a.priority);
-    const victim = byPri.find(b => b.sets.filter(s => !s.warmup).length > 2);
+    const victim = byPri.find(b => b.sets.filter(s => !s.warmup).length > minSets(b));
     if (victim) { const i = victim.sets.map(s => !s.warmup).lastIndexOf(true); victim.sets.splice(i, 1); continue; }
     if (built.length <= 3) break;
-    built.splice(built.indexOf(byPri[0]), 1);
+    const drop = byPri.find(b => EX[b.exId].type !== 'compound') || byPri[0];
+    built.splice(built.indexOf(drop), 1);
+  }
+  // Re-pair supersets if a partner was dropped.
+  built.forEach((b, k) => { if (b.superset === 'a' && built[k + 1]?.superset !== 'b') b.superset = null; if (b.superset === 'b' && built[k - 1]?.superset !== 'a') b.superset = null; });
+  // Fill leftover time by adding a set back to the highest-priority exercises (max 5).
+  for (let k = 0; k < 12; k++) {
+    const cand = [...built].filter(b => !EX[b.exId].tags.includes('addon') && b.sets.filter(x => !x.warmup).length < 5)
+      .sort((a, b) => a.sets.filter(x => !x.warmup).length - b.sets.filter(x => !x.warmup).length || a.priority - b.priority)[0];
+    if (!cand) break;
+    const last = [...cand.sets].reverse().find(x => !x.warmup);
+    cand.sets.push({ ...last, done: false });
+    if (estimateMinutes(built) > minutes) { cand.sets.pop(); break; }
   }
 
   const mobN = { off: 0, light: 3, focus: 4 }[mobLevel];
