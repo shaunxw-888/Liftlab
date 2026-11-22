@@ -151,7 +151,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.7.1</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.8</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -247,7 +247,7 @@ function exerciseScreen() {
     return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''}">
       ${preview ? `<div class="setnum">${label}</div>` : `<button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>`}
       <label class="cell"><input class="setin" inputmode="numeric" pattern="[0-9]*" data-i="${i}" data-j="${j}" data-f="reps" value="${s.reps ?? ''}"><small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></label>
-      <label class="cell"><input class="setin" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="weight" value="${s.weight != null ? E.fmtKg(s.weight) : ''}" placeholder="BW"><small>${wLabel(ex)}</small></label>
+      <label class="cell"><input class="setin" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="weight" value="${s.weight != null ? E.fmtKg(s.weight) : ''}" placeholder="${ex.loading === 'bodyweight' ? 'BW' : 'Set'}"><small>${wLabel(ex)}</small></label>
       ${plates}
     </div>${s.pr ? `<div class="prlabel">${ICON.trophy} ${s.pr}</div>` : ''}`;
   }).join('');

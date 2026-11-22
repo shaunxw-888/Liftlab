@@ -1,6 +1,6 @@
 // Liftlab engine: recovery, weekly planning, session generation, progression, plates, PRs.
 // Pure functions only (no DOM, no Firebase) so they can be tested in Node.
-import { EX, EXERCISES, RECOVERY_TAU, MUSCLES, SEEDS } from './exercises.js';
+import { EX, EXERCISES, RECOVERY_TAU, MUSCLES, SEEDS, START } from './exercises.js';
 
 const H = 3600000, DAY = 24 * H;
 
@@ -234,13 +234,15 @@ export function suggestTarget(state, exId, now = Date.now(), heavy = false) {
   if (hist.length >= 2 && hist[0].rough && !hist[1].rough) hist = hist.slice(1);
   const last = hist[0];
   if (!last) {
+    const reps = Math.min(hi, lo + 1);
+    if (!isWeighted(ex)) return { weight: null, reps, lo, hi, reason: ex.unit && ex.unit !== 'reps' ? 'First time: aim for the target, keep it controlled' : 'First time: leave about 2 reps in the tank' };
     const seed = (state.seeds || SEEDS)[exId];
-    if (seed && isWeighted(ex)) {
+    if (seed) {
       const e1 = seed.e1rm || e1rm(seed.weight, seed.reps);
-      const reps = Math.min(hi, lo + 1);
       return { weight: Math.max(inc, roundTo(weightFor(e1, reps, 2), inc)), reps, lo, hi, reason: 'Starting point from your Gravl best' };
     }
-    return { weight: null, reps: lo + 1 > hi ? lo : lo + 1, lo, hi, reason: 'First time: pick a weight with 2 reps left in the tank' };
+    const est = estimateStart(state, exId, reps, now);
+    return { weight: est.weight, reps, lo, hi, reason: est.reason };
   }
   const sets = last.sets;
   const top = Math.max(...sets.map(s => s.weight || 0));
@@ -274,6 +276,27 @@ export function suggestTarget(state, exId, now = Date.now(), heavy = false) {
     return { weight: w, reps: lo, lo, hi, reason: 'Lighter: missed the range twice, rebuild' };
   }
   return { weight: top, reps: lo, lo, hi, reason: `Same weight, aim for ${lo}` };
+}
+
+// Best estimated 1RM for an exercise: logged history first, then the Gravl seed.
+export function knownE1rm(state, exId, now = Infinity, depth = 0) {
+  const b = bestFor(state, exId, now);
+  if (b.e1rm) return b.e1rm;
+  const seed = (state.seeds || SEEDS)[exId];
+  if (seed) return seed.e1rm || e1rm(seed.weight, seed.reps);
+  const st = START[exId];
+  if (st?.ref && depth < 3) { const r = knownE1rm(state, st.ref, now, depth + 1); return r ? r * st.ratio : 0; }
+  return 0;
+}
+function estimateStart(state, exId, reps, now) {
+  const ex = EX[exId]; const inc = incFor(ex); const st = START[exId] || {};
+  const timed = ex.unit && ex.unit !== 'reps';
+  if (st.ref && !timed) {
+    const e1 = knownE1rm(state, st.ref, now) * st.ratio;
+    if (e1) return { weight: Math.max(inc, roundTo(weightFor(e1, reps, 2), inc)), reason: `First time: estimated from your ${EX[st.ref].name}. Adjust if needed` };
+  }
+  const w = st.weight ?? ({ dumbbell: 10, cable: 15, machine: 30, plate: 40, barbell: 40 }[ex.loading] || 10);
+  return { weight: Math.max(inc, roundTo(w, inc)), reason: 'First time: conservative starting weight. Adjust if needed' };
 }
 
 export function warmups(ex, weight) {

@@ -119,4 +119,41 @@ export const SEEDS = {
   standing_calf: { weight: 95, reps: 10 }, cable_abduction: { weight: 17.5, reps: 9 }, bench_press: { e1rm: 109 }, leg_extension: { e1rm: 93 }
 };
 
+// First-time estimates for weighted exercises with no history or seed.
+// ref + ratio: estimated 1RM = ratio x your best estimated 1RM on the reference lift.
+// weight: a fixed conservative starting weight.
+export const START = {
+  machine_chest_press: { ref: 'bench_press', ratio: 0.85 },
+  cable_fly: { ref: 'bench_press', ratio: 0.2 },
+  lat_pulldown: { ref: 'barbell_row', ratio: 0.85 },
+  cable_row: { ref: 'barbell_row', ratio: 0.9 },
+  cable_lateral: { ref: 'db_lateral', ratio: 0.6 },
+  reverse_fly: { ref: 'db_lateral', ratio: 0.6 },
+  face_pull: { ref: 'barbell_row', ratio: 0.3 },
+  incline_db_curl: { weight: 12.5 },
+  preacher_curl: { ref: 'ez_curl', ratio: 0.85 },
+  overhead_ext: { ref: 'close_grip_bench', ratio: 0.25 },
+  pushdown: { ref: 'close_grip_bench', ratio: 0.3 },
+  skullcrusher: { ref: 'close_grip_bench', ratio: 0.35 },
+  hack_squat: { ref: 'leg_press', ratio: 0.55 },
+  seated_leg_curl: { ref: 'rdl', ratio: 0.45 },
+  hip_thrust: { ref: 'rdl', ratio: 1.0 },
+  seated_calf: { ref: 'standing_calf', ratio: 0.5 },
+  adductor_machine: { ref: 'leg_extension', ratio: 0.6 },
+  abductor_machine: { ref: 'leg_extension', ratio: 0.6 },
+  cable_abduction: { weight: 15 },
+  cable_crunch: { weight: 30 },
+  db_shrug: { ref: 'db_row', ratio: 0.85 },
+  farmer_carry: { weight: 30 },
+  prone_yt: { weight: 4 },
+  bench_press: { ref: 'incline_bench', ratio: 1.15 },
+  back_squat: { weight: 60 }, deadlift: { weight: 80 }, rdl: { weight: 60 }, barbell_row: { weight: 50 },
+  incline_bench: { ref: 'bench_press', ratio: 0.85 }, incline_db_press: { ref: 'bench_press', ratio: 0.32 },
+  close_grip_bench: { ref: 'bench_press', ratio: 0.8 }, ohp: { ref: 'bench_press', ratio: 0.6 },
+  db_shoulder_press: { ref: 'ohp', ratio: 0.45 }, db_row: { ref: 'barbell_row', ratio: 0.5 },
+  cs_row: { ref: 'db_row', ratio: 0.75 }, ez_curl: { weight: 20 }, db_lateral: { weight: 8 },
+  leg_press: { ref: 'back_squat', ratio: 1.5 }, leg_extension: { weight: 40 }, bss: { ref: 'back_squat', ratio: 0.25 },
+  standing_calf: { weight: 60 }
+};
+
 export const DEFAULT_EQUIPMENT = Object.keys(EQUIPMENT);
