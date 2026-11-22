@@ -21,6 +21,24 @@ export function weekStart(t) {
 export const weekKey = (t) => new Date(weekStart(t)).toISOString().slice(0, 10);
 export const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
+// ---------- goals ----------
+// settings.goals = { muscle, strength, cut, jump, posture, mobility } (tick boxes)
+// settings.ai = { addonLevels, muscleBias, avoid, prefer, summary } (set by Claude from comments)
+export function goalsOf(state) {
+  const st = state.settings || {};
+  if (st.goals) return st.goals;
+  const g = st.goal || 'build', a = st.addons || {};
+  return { muscle: g !== 'strength', strength: g === 'strength', cut: g === 'cut', jump: !!a.jump, posture: !!a.posture, mobility: !!a.mobility };
+}
+export function addonLevel(state, k) {
+  const g = goalsOf(state); const ai = state.settings?.ai?.addonLevels || {};
+  if (ai[k] && ai[k] !== 'off') return ai[k];
+  return g[k] ? 'light' : 'off';
+}
+function biasFor(state, m) {
+  return (state.settings?.ai?.muscleBias || []).filter(b => b.muscle === m).reduce((a, b) => a + (Number(b.delta) || 0), 0);
+}
+
 // ---------- availability ----------
 export function isAvailable(ex, state) {
   const eq = new Set(state.equipment || []);
@@ -107,9 +125,12 @@ const WEEKLY = { // hard sets per week for "build"
   chest: 12, lats: 8, upperBack: 8, quads: 12, hamstrings: 10, glutes: 6, sideDelts: 10, rearDelts: 6,
   frontDelts: 3, biceps: 8, triceps: 8, calves: 8, abs: 6, obliques: 3, adductors: 3, abductors: 4
 };
-export function weeklyTarget(m, goal) {
-  const base = WEEKLY[m] || 0;
-  return goal === 'build' ? base : Math.round(base * 0.8);
+export function weeklyTarget(m, state) {
+  const g = goalsOf(state); const base = WEEKLY[m] || 0; if (!base) return 0;
+  let t = base;
+  if (g.cut) t *= 0.8;
+  if (g.strength && !g.muscle) t *= 0.85;
+  return Math.max(0, Math.round(t + biasFor(state, m)));
 }
 export function planWeek(settings) {
   const days = Math.min(6, Math.max(2, Number(settings?.days) || 3));
@@ -163,7 +184,7 @@ export function exerciseHistory(state, exId, beforeTime = Infinity) {
     const e = w.exercises.find(x => x.exId === exId);
     if (!e) continue;
     const sets = e.sets.filter(s => s.done && !s.warmup);
-    if (sets.length) out.push({ at: w.startedAt, rough: !!w.rough, workoutId: w.id, sets, rir: e.firstRir || null });
+    if (sets.length) out.push({ at: w.startedAt, rough: !!w.rough, workoutId: w.id, sets, rir: e.firstRir || null, range: e.target?.lo ? [e.target.lo, e.target.hi] : null });
   }
   return out.sort((a, b) => b.at - a.at);
 }
@@ -197,15 +218,17 @@ export function detectPR(state, exId, set, beforeTime) {
 }
 
 // ---------- progression ----------
-export function repRange(ex, goal) {
-  if (goal === 'strength' && ex.type === 'compound' && ex.loading === 'barbell') return [4, 6];
+export function repRange(ex, state, heavy = false) {
+  const g = goalsOf(state);
+  const heavyOk = ex.type === 'compound' && ['barbell', 'plate'].includes(ex.loading);
+  if (heavyOk && (heavy || (g.strength && !g.muscle))) return [4, 6];
   return ex.reps;
 }
 export function incFor(ex) { return ex.inc || 2.5; }
 
-export function suggestTarget(state, exId, now = Date.now()) {
-  const ex = EX[exId]; const goal = state.settings?.goal || 'build';
-  const [lo, hi] = repRange(ex, goal); const inc = incFor(ex);
+export function suggestTarget(state, exId, now = Date.now(), heavy = false) {
+  const ex = EX[exId];
+  const [lo, hi] = repRange(ex, state, heavy); const inc = incFor(ex);
   let hist = exerciseHistory(state, exId, now);
   // A single rough day doesn't count against progression.
   if (hist.length >= 2 && hist[0].rough && !hist[1].rough) hist = hist.slice(1);
@@ -221,6 +244,13 @@ export function suggestTarget(state, exId, now = Date.now()) {
   }
   const sets = last.sets;
   const top = Math.max(...sets.map(s => s.weight || 0));
+  // Rep range changed (e.g. heavy day vs volume day): re-derive weight from e1RM.
+  const rangeChanged = last.range && (last.range[0] !== lo || last.range[1] !== hi);
+  if (isWeighted(ex) && top && rangeChanged) {
+    const e1 = Math.max(...sets.map(s => e1rm(s.weight, s.reps)));
+    const reps = Math.min(hi, lo + 1);
+    return { weight: Math.max(inc, roundTo(weightFor(e1, reps, 2), inc)), reps, lo, hi, reason: `Heavier ${lo}-${hi} rep work, from your recent sets` };
+  }
   const atTop = sets.filter(s => (s.weight || 0) === top);
   const minReps = Math.min(...atTop.map(s => s.reps));
   const unit = ex.unit === 's' ? 's' : ex.unit === 'm' ? 'm' : 'reps';
@@ -256,9 +286,10 @@ export function warmups(ex, weight) {
 function rankFor(muscle, state, used, wantCompound, now) {
   const recent = new Set();
   for (const w of state.workouts || []) if (now - w.startedAt < 21 * DAY) w.exercises.forEach(e => recent.add(e.exId));
-  const boosted = new Set(state.boosted || []);
+  const boosted = new Set([...(state.boosted || []), ...(state.settings?.ai?.prefer || [])]);
+  const avoid = new Set(state.settings?.ai?.avoid || []);
   return EXERCISES
-    .filter(e => e.primary.includes(muscle) && !e.tags.includes('addon') && isAvailable(e, state) && !used.has(e.id))
+    .filter(e => e.primary.includes(muscle) && !e.tags.includes('addon') && isAvailable(e, state) && !used.has(e.id) && !avoid.has(e.id))
     .map((e, i) => ({ e, s: (boosted.has(e.id) ? 6 : 0) + (recent.has(e.id) ? 2 : 0) + (wantCompound === (e.type === 'compound') ? 3 : 0) - i * 0.01 }))
     .sort((a, b) => b.s - a.s).map(x => x.e);
 }
@@ -276,25 +307,29 @@ export function estimateMinutes(items) {
 
 export function generateSession(state, tpl, opts = {}) {
   const now = opts.now || Date.now();
-  const goal = state.settings?.goal || 'build';
+  const g = goalsOf(state);
   const minutes = opts.minutes || Number(state.settings?.minutes) || 60;
   const plan = planWeek(state.settings);
   const freq = frequency(plan);
   const ready = readiness(state, now);
-  const addons = state.settings?.addons || {};
+  const lvl = (k) => addonLevel(state, k);
   const rel = gameRelation(state, now);
   const used = new Set(); const items = [];
   const slots = SLOTS[tpl.type][tpl.variant];
 
   // Jump work first while fresh, never around the game.
-  if (addons.jump && tpl.type !== 'upper' && !rel) {
-    const jumps = EXERCISES.filter(e => e.tags.includes('jump') && isAvailable(e, state) && !e.tags.includes('advanced'));
-    const pick = jumps[(weekStart(now) / (7 * DAY) + tpl.variant) % jumps.length | 0] || jumps[0];
-    if (pick) { items.push({ exId: pick.id, sets: 3, priority: 0 }); used.add(pick.id); }
+  if (lvl('jump') !== 'off' && tpl.type !== 'upper' && !rel) {
+    const focus = lvl('jump') === 'focus';
+    const jumps = EXERCISES.filter(e => e.tags.includes('jump') && isAvailable(e, state) && (focus || !e.tags.includes('advanced')) && !(state.settings?.ai?.avoid || []).includes(e.id));
+    const start = (weekStart(now) / (7 * DAY) + tpl.variant) % Math.max(1, jumps.length) | 0;
+    for (let k = 0; k < (focus ? 2 : 1) && jumps.length; k++) {
+      const pick = jumps[(start + k) % jumps.length];
+      if (!used.has(pick.id)) { items.push({ exId: pick.id, sets: focus ? 3 : 2, priority: 0 }); used.add(pick.id); }
+    }
   }
 
   slots.forEach((m, idx) => {
-    const wk = weeklyTarget(m, goal); if (!wk) return;
+    const wk = weeklyTarget(m, state); if (!wk) return;
     let n = Math.round(wk / (freq[m] || 1));
     if (ready[m] < 50) n = Math.max(2, Math.round(n * 0.6)); // under-recovered: trim
     if (ready[m] < 25) return; // very sore: skip
@@ -313,9 +348,10 @@ export function generateSession(state, tpl, opts = {}) {
     }
   });
 
-  if (addons.posture && tpl.type !== 'lower') {
-    const p = EXERCISES.find(e => e.tags.includes('posture') && e.tags.includes('addon') && isAvailable(e, state) && !used.has(e.id));
-    if (p) { items.push({ exId: p.id, sets: 2, priority: 50 }); used.add(p.id); }
+  if (lvl('posture') !== 'off' && tpl.type !== 'lower') {
+    const n = lvl('posture') === 'focus' ? 2 : 1;
+    EXERCISES.filter(e => e.tags.includes('posture') && e.tags.includes('addon') && isAvailable(e, state) && !used.has(e.id)).slice(0, n)
+      .forEach(p => { items.push({ exId: p.id, sets: 2, priority: 50 }); used.add(p.id); });
   }
 
   // Order: jumps, compounds, isolations.
@@ -323,7 +359,9 @@ export function generateSession(state, tpl, opts = {}) {
   items.sort((a, b) => order(a) - order(b) || a.priority - b.priority);
 
   // Build set targets.
-  let built = items.map((it, i) => buildItem(state, it.exId, it.sets, now, i === items.findIndex(x => EX[x.exId].type === 'compound')));
+  const firstComp = items.findIndex(x => EX[x.exId].type === 'compound');
+  const heavyIdx = g.strength && g.muscle ? items.findIndex(x => EX[x.exId].type === 'compound' && ['barbell', 'plate'].includes(EX[x.exId].loading)) : -1;
+  let built = items.map((it, i) => buildItem(state, it.exId, it.sets, now, i === firstComp, i === heavyIdx));
   built.forEach((b, i) => { b.priority = items[i].priority; });
 
   // Superset last two isolations if they hit different muscles.
@@ -343,16 +381,17 @@ export function generateSession(state, tpl, opts = {}) {
     built.splice(built.indexOf(byPri[0]), 1);
   }
 
-  const mobility = addons.mobility ? EXERCISES.filter(e => e.tags.includes('mobility') && isAvailable(e, state)).slice(tpl.variant, tpl.variant + 2).map(e => e.id) : [];
+  const mobN = { off: 0, light: 2, focus: 3 }[lvl('mobility')];
+  const mobility = EXERCISES.filter(e => e.tags.includes('mobility') && isAvailable(e, state)).slice(tpl.variant, tpl.variant + mobN).map(e => e.id);
   return { templateKey: tpl.key, type: tpl.type, name: tpl.name, exercises: built, mobility, estMinutes: estimateMinutes(built) };
 }
 
-export function buildItem(state, exId, nSets, now = Date.now(), withWarmups = false) {
-  const ex = EX[exId]; const t = suggestTarget(state, exId, now);
+export function buildItem(state, exId, nSets, now = Date.now(), withWarmups = false, heavy = false) {
+  const ex = EX[exId]; const t = suggestTarget(state, exId, now, heavy);
   const sets = [];
   if (withWarmups) sets.push(...warmups(ex, t.weight));
   for (let i = 0; i < nSets; i++) sets.push({ weight: t.weight, reps: t.reps, done: false });
-  return { exId, target: t, sets, adjusted: false, lowered: false };
+  return { exId, target: t, sets, adjusted: false, lowered: false, heavy };
 }
 
 // ---------- swaps ----------
@@ -392,8 +431,8 @@ export function setsPerMuscle(workouts) {
   }
   return out;
 }
-export function band(m, goal) {
-  const t = weeklyTarget(m, goal); if (!t) return null;
+export function band(m, state) {
+  const t = weeklyTarget(m, state); if (!t) return null;
   return { lo: Math.max(2, Math.round(t * 0.8)), hi: ['chest', 'quads', 'hamstrings', 'lats', 'upperBack'].includes(m) ? 20 : 16, target: t };
 }
 export function workoutStats(w) {

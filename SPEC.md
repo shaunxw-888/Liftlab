@@ -6,7 +6,7 @@
 - Adaptive within and across sessions, without nagging.
 
 ## v1 (built)
-- Setup: goal (build / strength / maintain on cut), days per week, session length, weekly game day, add-on goals, equipment checklist.
+- Setup: goal tick boxes (build muscle, get stronger, cutting, jump/athletic, back and neck, mobility) plus an "Anything else?" comments box Claude reads, days per week, session length, weekly game day, equipment checklist.
 - Weekly plan around the Thursday game: no heavy legs or jumps the day before, day of, or day after. "No game this week" and "Log game".
 - Home: weekly progress bar, session cards ordered by readiness, per-muscle readiness chips, time adjuster, recovery heatmap, optional soreness (Fresh / Bit sore / Very sore).
 - Session: exercise list, swipe left to swap, menu (swap, reorder, superset, +/- set, remove), add exercise, rough-day trim prompt.
@@ -25,8 +25,14 @@
 - Double progression; +2 increments if the first set felt 3+ RIR; -7% after two sessions below range.
 - e1RM: Brzycki (matches Gravl).
 
+## v1.1 Claude features (Netlify function, Sonnet, owner-only)
+- Comments box → add-on levels (off/light/focus), weekly set bias per muscle, exercises to avoid/prefer. Summary shown in Settings.
+- Ask Claude on the session screen: rework remaining exercises (completed ones kept).
+- Ask Claude in the swap sheet: 1-3 picks with reasons.
+- Weekly review card on Progress (cached per week).
+- Claude only picks from the library; progression rules still set weights and reps.
+
 ## v2 (next)
-- Claude features via Netlify function: Ask Claude in swaps, session rework, free-text goals, weekly review.
 - Strength score tiers (e1RM / bodyweight vs standards), DOTS, badges.
 - Save session as template.
 - Nutrition tab (on hold).

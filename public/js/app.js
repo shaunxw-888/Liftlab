@@ -3,6 +3,7 @@ import * as E from './engine.js';
 import * as DB from './store.js';
 import { muscleIcon, recoveryMap, heatColor } from './bodymap.js';
 import { lineChart } from './charts.js';
+import { askClaude, libraryText, MUSCLE_KEYS } from './claude.js';
 
 // ---------------- icons ----------------
 const ICON = {
@@ -28,7 +29,7 @@ const ICON = {
 // ---------------- state ----------------
 const S = {
   uid: null, loaded: false, settings: null, equipment: [], excluded: [], boosted: [], barOverrides: {}, soreness: {},
-  gameSkips: [], games: [], bodyweight: [], notes: {}, workouts: [], active: null, preview: null,
+  gameSkips: [], games: [], bodyweight: [], notes: {}, reviews: {}, busy: null, workouts: [], active: null, preview: null,
   view: { name: 'home' }, sheet: null, cardMin: {}, toast: null, authError: '', setupDraft: null
 };
 const $app = document.getElementById('app');
@@ -115,7 +116,7 @@ function authScreen() {
 // ---------------- setup / settings ----------------
 function draft() {
   if (!S.setupDraft) S.setupDraft = {
-    settings: structuredClone(S.settings || { goal: 'build', days: 3, minutes: 60, gameDay: 4, addons: { jump: false, posture: false, mobility: false } }),
+    settings: structuredClone(S.settings ? { ...S.settings, goals: E.goalsOf(S) } : { goals: { muscle: true }, days: 3, minutes: 60, gameDay: 4, comments: '' }),
     equipment: [...(S.equipment?.length ? S.equipment : DEFAULT_EQUIPMENT)]
   };
   return S.setupDraft;
@@ -123,27 +124,34 @@ function draft() {
 function setupScreen(first) {
   const d = draft(); const st = d.settings;
   const seg = (field, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${String(st[field]) === String(v) ? 'on' : ''}" data-a="draft" data-f="${field}" data-v="${v}">${l}</button>`).join('')}</div>`;
-  const addon = (k, l, sub) => `<label class="row toggle"><div><b>${l}</b><small>${sub}</small></div><input type="checkbox" data-a="draftAddon" data-f="${k}" ${st.addons?.[k] ? 'checked' : ''}></label>`;
+  const goal = (k, l, sub) => `<label class="row tick"><input type="checkbox" data-a="draftGoal" data-f="${k}" ${st.goals?.[k] ? 'checked' : ''}><div><b>${l}</b><small>${sub}</small></div></label>`;
+  const ai = S.settings?.ai;
   const eq = Object.entries(EQUIPMENT).map(([k, l]) => `<label class="chip check ${d.equipment.includes(k) ? 'on' : ''}"><input type="checkbox" data-a="draftEq" data-f="${k}" ${d.equipment.includes(k) ? 'checked' : ''}>${l}</label>`).join('');
   const bw = S.bodyweight?.length ? S.bodyweight.at(-1) : null;
   return `<div class="screen">
     <header class="top"><h1>${first ? 'Set up Liftlab' : 'Settings'}</h1></header>
     ${first ? '<p class="muted pad">Takes about a minute. You can change any of this later.</p>' : ''}
-    <section class="card"><h3>Main goal</h3>${seg('goal', [['build', 'Build muscle'], ['strength', 'Strength'], ['cut', 'Maintain (cutting)']])}</section>
+    <section class="card"><h3>Goals</h3><p class="muted small">Tick any combination.</p>
+      ${goal('muscle', 'Build muscle', 'Hypertrophy volume and rep ranges')}
+      ${goal('strength', 'Get stronger', 'Heavier 4-6 rep work on main lifts')}
+      ${goal('cut', 'Cutting', 'Slightly less volume, keep weights heavy')}
+      ${goal('jump', 'Jump higher / athletic', 'Plyos first in lower and full sessions')}
+      ${goal('posture', 'Back and neck (clinic posture)', 'Upper back and deep neck work')}
+      ${goal('mobility', 'Mobility', 'Short drills during rest periods')}
+      <h3 class="mt">Anything else?</h3>
+      <textarea id="commentsIn" placeholder="e.g. want to dunk by mid-year, lower back tight after long clinic days, prioritise arms">${esc(st.comments || '')}</textarea>
+      <p class="muted small">Claude reads this and fine-tunes your programme.</p>
+      ${ai?.summary ? `<div class="badge mt">${ICON.spark} ${esc(ai.summary)}</div>` : ''}</section>
     <section class="card"><h3>Days per week</h3>${seg('days', [[2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6']])}
       <h3>Session length</h3>${seg('minutes', [[30, '30'], [45, '45'], [60, '60'], [75, '75'], [90, '90']])}</section>
     <section class="card"><h3>Weekly game</h3><p class="muted small">Legs and jumps are kept away from the day before and after.</p>
       ${seg('gameDay', [['', 'None'], [1, 'Mo'], [2, 'Tu'], [3, 'We'], [4, 'Th'], [5, 'Fr'], [6, 'Sa'], [0, 'Su']])}</section>
-    <section class="card"><h3>Add-on goals</h3>
-      ${addon('jump', 'Jump higher / dunk', 'Plyos first in lower and full sessions, low volume')}
-      ${addon('posture', 'Back and neck (clinic posture)', 'Upper back and deep neck work on upper days')}
-      ${addon('mobility', 'Mobility', 'Short drills done during rest periods')}</section>
     <section class="card"><h3>Gym equipment</h3><p class="muted small">Untick anything your gym doesn't have.</p><div class="chips">${eq}</div></section>
     ${!first ? `<section class="card"><h3>Bodyweight</h3><div class="row"><input id="bwIn" type="number" inputmode="decimal" placeholder="${bw ? bw.kg : 'kg'}"><button class="btn" data-a="addBw">Log</button></div>
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
-    <button class="btn primary big wide" data-a="saveSetup">${first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1</p>' : ''}
+    <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.1</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -211,7 +219,8 @@ function sessionScreen() {
     <header class="top"><button class="icon-btn" data-a="back">${ICON.back}</button><h1 class="small">${esc(s.name)}</h1>
       ${active ? `<span class="mono pill" id="wtimer">${fmtDur(Date.now() - s.startedAt)}</span>` : '<span></span>'}</header>
     <div class="ready-row pad">${muscles.map(m => `<span class="rchip" style="--c:${heatColor(ready[m])}">${MUSCLES[m]} ${ready[m]}%</span>`).join('')}</div>
-    <div class="row pad"><b>${s.exercises.length} exercises · ~${E.estimateMinutes(s.exercises)} min</b><button class="btn small" data-a="addExercise">+ Add</button></div>
+    <div class="row pad"><b class="count">${s.exercises.length} exercises · ~${E.estimateMinutes(s.exercises)} min</b><div class="row tight"><button class="btn small ai" data-a="askOpen">${ICON.spark} Ask Claude</button><button class="btn small" data-a="addExercise">+ Add</button></div></div>
+    ${s.aiNote ? `<div class="badge">${ICON.spark} ${esc(s.aiNote)}</div>` : ''}
     ${lowered >= 2 && !s.trimmed ? `<div class="card note"><b>Rough day?</b><span>You've lowered a couple of lifts. Trim a set from the rest of the session? This won't count against your progression.</span><div class="row"><button class="btn small primary" data-a="trimRest">Trim</button><button class="btn small" data-a="dismissTrim">Keep going</button></div></div>` : ''}
     <p class="muted small pad">Swipe left on an exercise to swap it. Tap to open.</p>
     <div class="exlist">${rows}</div>
@@ -281,7 +290,7 @@ function summaryScreen() {
 
 // ---------------- progress ----------------
 function progressScreen() {
-  const now = Date.now(); const goal = S.settings.goal;
+  const now = Date.now();
   const ws = E.weekStart(now);
   const thisWeek = E.weekWorkouts(S, now);
   const plan = E.planWeek(S.settings);
@@ -296,9 +305,9 @@ function progressScreen() {
   if (thisWeek.length >= plan.length) streak++;
   // PRs this week
   const prs = []; thisWeek.forEach(w => w.exercises.forEach(e => e.sets.forEach(s => { if (s.pr) prs.push({ exId: e.exId, s }); })));
-  const rings = Object.keys(MUSCLES).map(m => ({ m, b: E.band(m, goal), v: spm[m] })).filter(x => x.b);
+  const rings = Object.keys(MUSCLES).map(m => ({ m, b: E.band(m, S), v: spm[m] })).filter(x => x.b);
   const ring = ({ m, b, v }) => { const pct = Math.min(1, v / b.hi); const col = v < b.lo ? 'var(--muted2)' : v > b.hi ? '#f5a524' : '#22c55e'; const C = 2 * Math.PI * 22;
-    return `<div class="ring"><svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="22" class="rbg"/><circle cx="27" cy="27" r="22" stroke="${col}" stroke-dasharray="${C * pct} ${C}" transform="rotate(-90 27 27)" class="rfg"/></svg><b>${Math.round(v * 2) / 2}</b><small>${MUSCLES[m]}</small><em>${b.lo}–${b.hi}</em></div>`; };
+    return `<div class="ring"><svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="22" class="rbg"/>${pct > 0 ? `<circle cx="27" cy="27" r="22" stroke="${col}" stroke-dasharray="${C * pct} ${C}" transform="rotate(-90 27 27)" class="rfg"/>` : ''}</svg><b>${Math.round(v * 2) / 2}</b><small>${MUSCLES[m]}</small><em>${b.lo}–${b.hi}</em></div>`; };
   // exercises with history
   const exIds = [...new Set(S.workouts.flatMap(w => w.exercises.filter(e => e.sets.some(s => s.done && !s.warmup)).map(e => e.exId)))];
   const plateaus = exIds.filter(id => { const h = E.exerciseHistory(S, id); if (h.length < 3 || now - h[0].at > 21 * 864e5) return false; const best = (x) => Math.max(...x.sets.map(s => E.e1rm(s.weight, s.reps))); const recent = h.filter(x => now - x.at < 21 * 864e5); const before = h.filter(x => now - x.at >= 21 * 864e5); return before.length && recent.length >= 2 && Math.max(...recent.map(best)) <= Math.max(...before.map(best)); });
@@ -309,6 +318,7 @@ function progressScreen() {
   return `<div class="screen">
     <header class="top"><h1>Progress</h1></header>
     <div class="chips pad"><span class="chip big">${ICON.flame} ${thisWeek.length}/${plan.length} this week</span><span class="chip big">🔥 ${streak} wk streak</span><span class="chip big">${ICON.trophy} ${prs.length} PRs</span></div>
+    ${reviewCard(thisWeek)}
     <section class="card"><h3>Sets per muscle this week</h3><p class="muted small">Grey = below target, green = in range, amber = above. Half sets count for secondary muscles.</p><div class="rings">${rings.map(ring).join('')}</div></section>
     ${prs.length ? `<section class="card"><h3>${ICON.trophy} Personal records this week</h3>${prs.map(p => `<button class="row link" data-a="exDetail" data-v="${p.exId}"><span>${EX[p.exId].name}</span><small class="accent">${p.s.pr} · ${p.s.reps} × ${p.s.weight ?? 'BW'}</small></button>`).join('')}</section>` : ''}
     ${plateaus.length ? `<section class="card note"><h3>Plateau check</h3><p class="small muted">No e1RM gain in about 3 weeks. Consider a swap or a lighter week.</p>${plateaus.map(id => `<button class="row link" data-a="exDetail" data-v="${id}"><span>${EX[id].name}</span>${ICON.chev}</button>`).join('')}</section>` : ''}
@@ -362,6 +372,12 @@ function sheetHtml() {
   } else if (sh.type === 'adjust') {
     inner = `<h3>${sh.up ? 'Feeling strong' : 'Tough one'}</h3><p>${sh.up ? `That looked easy. Do the remaining sets at <b>${E.fmtKg(sh.weight)} kg</b>?` : `Drop the remaining sets to <b>${E.fmtKg(sh.weight)} kg</b> to stay in range?`}</p>
       <div class="row"><button class="btn primary big grow" data-a="applyAdjust">Yes</button><button class="btn big grow" data-a="closeSheet">Keep as is</button></div>`;
+  } else if (sh.type === 'ask') {
+    const quick = ['Only have 30 min', "Gym's packed, avoid cables", 'Something is sore', 'Low energy today', 'More arms today'];
+    inner = `<h3>${ICON.spark} Rework this session</h3><p class="muted small">Tell Claude what's going on. Completed exercises stay as they are.</p>
+      <div class="chips">${quick.map(q => `<button class="chip" data-a="askQuick" data-v="${esc(q)}">${q}</button>`).join('')}</div>
+      <textarea id="askIn" placeholder="e.g. left knee sore, keep it upper-focused">${esc(sh.text || '')}</textarea>
+      <button class="btn primary big wide" data-a="askSend" ${S.busy ? 'disabled' : ''}>${S.busy === 'rework' ? '<span class="spinner sm"></span> Reworking' : 'Rework session'}</button>`;
   } else if (sh.type === 'swap') {
     inner = swapSheet(sh);
   } else if (sh.type === 'menu') {
@@ -391,7 +407,8 @@ function swapSheet(sh) {
   const cur = add ? null : s.exercises[sh.i]; const ex = cur && EX[cur.exId];
   const inSession = s.exercises.map(e => e.exId);
   const q = (sh.q || '').toLowerCase();
-  const picks = add ? [] : E.swapOptions(S, cur.exId, inSession);
+  const aiIds = (sh.aiPicks || []).map(p => p.exId);
+  const picks = add ? [] : E.swapOptions(S, cur.exId, [...inSession, ...aiIds]);
   const list = EXERCISES.filter(e => E.isAvailable(e, S) && !inSession.includes(e.id) && (q ? e.name.toLowerCase().includes(q) || e.primary.some(m => MUSCLES[m].toLowerCase().includes(q)) : add || e.primary.some(m => ex.primary.includes(m))));
   const item = (e) => `<button class="row link pick" data-a="swapPick" data-v="${e.id}"><div class="thumb sm">${muscleIcon(e.primary, e.secondary, 34)}</div><div class="grow"><b>${e.name}</b><small class="muted">${e.reason}</small></div></button>`;
   const reasons = [['taken', 'Equipment taken'], ['discomfort', 'Discomfort'], ['dislike', "Don't like it"], ['nogym', "Gym doesn't have this"]];
@@ -399,6 +416,8 @@ function swapSheet(sh) {
     ${!add ? `<div class="chips">${reasons.map(([k, l]) => `<button class="chip ${sh.reason === k ? 'on' : ''}" data-a="swapReason" data-v="${k}">${l}</button>`).join('')}</div>` : ''}
     ${sh.reason === 'nogym' ? `<div class="card inset"><p class="small">Which one is missing? It'll be removed from your gym permanently.</p><div class="chips">${ex.equip.map(k => `<button class="chip" data-a="removeEquip" data-v="${k}">${EQUIPMENT[k]}</button>`).join('') || '<span class="muted small">No equipment needed</span>'}</div></div>` : ''}
     ${sh.reason === 'dislike' ? '<p class="small accent">It won\'t be suggested again (restore in Settings).</p>' : ''}
+    ${!add ? `<div class="askrow"><input id="swapAsk" class="search" placeholder="Ask Claude, e.g. shoulder niggly, need pain-free option" value="${esc(sh.ask || '')}"><button class="btn small ai" data-a="swapAsk" ${S.busy ? 'disabled' : ''}>${S.busy === 'swap' ? '<span class="spinner sm"></span>' : ICON.spark}</button></div>` : ''}
+    ${sh.aiPicks?.length ? `<h4>${ICON.spark} Claude suggests</h4>${sh.aiPicks.map(p => EX[p.exId] ? `<button class="row link pick" data-a="swapPick" data-v="${p.exId}"><div class="thumb sm">${muscleIcon(EX[p.exId].primary, EX[p.exId].secondary, 34)}</div><div class="grow"><b>${EX[p.exId].name}</b><small class="accent">${esc(p.why)}</small></div></button>` : '').join('')}` : ''}
     ${picks.length && !q ? `<h4>Best alternatives</h4>${picks.map(item).join('')}` : ''}
     <input id="swapSearch" class="search" placeholder="Search exercises or muscles" value="${esc(sh.q || '')}">
     <div class="swaplist">${list.filter(e => q || !picks.includes(e)).slice(0, 25).map(item).join('')}</div>`;
@@ -488,6 +507,67 @@ function finishWorkout() {
   S.view = { name: 'summary', id: w.id, from: 'train' }; render();
 }
 
+// ---------------- Claude ----------------
+async function reworkSession(request) {
+  if (!request) return toast('Tell Claude what to change');
+  const s = currentSession(); const active = !!S.active;
+  const isDone = (e) => e.sets.some(x => x.done);
+  const done = active ? s.exercises.filter(isDone) : [];
+  const remaining = s.exercises.filter(e => !done.includes(e));
+  const elapsed = active ? (Date.now() - s.startedAt) / 60000 : 0;
+  const minutes = Math.max(15, Math.round((S.cardMin[s.templateKey] || Number(S.settings.minutes) || 60) - elapsed));
+  S.busy = 'rework'; render();
+  try {
+    const res = await askClaude('rework', { request, type: s.type, minutes, done: done.map(e => e.exId),
+      remaining: remaining.map(e => ({ exId: e.exId, sets: e.sets.filter(x => !x.warmup).length })), readiness: E.readiness(S), library: libraryText(S) });
+    const seen = new Set(done.map(e => e.exId));
+    const items = (res.exercises || []).filter(x => EX[x.exId] && E.isAvailable(EX[x.exId], S) && !seen.has(x.exId) && seen.add(x.exId))
+      .map((x, i) => {
+        const keep = remaining.find(e => e.exId === x.exId);
+        if (keep) { const w = keep.sets.filter(z => z.warmup); const t = keep.sets.find(z => !z.warmup) || {}; keep.sets = [...w, ...Array.from({ length: x.sets }, () => ({ weight: t.weight ?? keep.target.weight, reps: t.reps ?? keep.target.reps, done: false }))]; return keep; }
+        return E.buildItem(S, x.exId, x.sets, Date.now(), !done.length && i === 0 && EX[x.exId].type === 'compound');
+      });
+    if (!items.length) throw new Error('No usable exercises returned');
+    s.exercises = [...done, ...items]; s.aiNote = res.summary; S.sheet = null;
+    if (active) persistActive();
+    toast(`${ICON.spark} Session reworked`, 'ok');
+  } catch (e) { toast(`Claude couldn't rework it: ${esc(e.message)}`); }
+  S.busy = null; render();
+}
+async function swapWithClaude(request) {
+  const sh = S.sheet; if (!request) return toast('Tell Claude why you want to swap');
+  const s = currentSession(); const cur = s.exercises[sh.i];
+  sh.ask = request; S.busy = 'swap'; render();
+  try {
+    const res = await askClaude('swap', { current: `${cur.exId} (${EX[cur.exId].name})`, request, inSession: s.exercises.map(e => e.exId), library: libraryText(S, { withReason: true }) });
+    if (S.sheet === sh) sh.aiPicks = (res.options || []).filter(o => EX[o.exId] && E.isAvailable(EX[o.exId], S));
+  } catch (e) { toast(`Claude unavailable: ${esc(e.message)}`); }
+  S.busy = null; render();
+}
+async function weeklyReview() {
+  const now = Date.now(); const wk = E.weekKey(now); const thisWeek = E.weekWorkouts(S, now);
+  const g = E.goalsOf(S); const spm = E.setsPerMuscle(thisWeek);
+  const sets = Object.keys(MUSCLES).map(m => { const b = E.band(m, S); return b ? `${MUSCLES[m]} ${spm[m]} (${b.lo}-${b.hi})` : null; }).filter(Boolean).join(', ');
+  const ids = [...new Set(S.workouts.filter(w => now - w.startedAt < 42 * 864e5).flatMap(w => w.exercises.map(e => e.exId)))];
+  const trends = ids.map(id => { const h = E.exerciseHistory(S, id).filter(x => now - x.at < 42 * 864e5).reverse(); if (!h.length) return null;
+    const v = (x) => Math.round(Math.max(...x.sets.map(s => E.e1rm(s.weight, s.reps) || s.reps)) * 10) / 10; return `${EX[id].name}: ${h.map(v).join(' > ')}`; }).filter(Boolean).join('; ');
+  const tw = thisWeek.map(w => `${w.name} (${dayName(w.startedAt)}${w.rough ? ', rough day' : ''}): ` + w.exercises.map(e => `${EX[e.exId].name} ${e.sets.filter(s => !s.warmup).map(s => `${s.reps}x${s.weight ?? 'BW'}`).join(',')}`).join('; ')).join(' | ');
+  S.busy = 'review'; render();
+  try {
+    const res = await askClaude('review', { goals: Object.keys(g).filter(k => g[k]), comments: S.settings.comments, thisWeek: tw || 'none', sets, trends: trends || 'no history yet' });
+    S.reviews = { ...S.reviews, [wk]: { ...res, at: now } }; persistProfile();
+  } catch (e) { toast(`Claude unavailable: ${esc(e.message)}`); }
+  S.busy = null; render();
+}
+function reviewCard(thisWeek) {
+  const r = S.reviews?.[E.weekKey(Date.now())];
+  if (!r) return thisWeek.length ? `<section class="card ai-card"><div class="row"><div><b>${ICON.spark} Weekly review</b><small class="muted">What improved, what stalled, one change.</small></div><button class="btn small ai" data-a="review" ${S.busy ? 'disabled' : ''}>${S.busy === 'review' ? '<span class="spinner sm"></span>' : 'Review'}</button></div></section>` : '';
+  const li = (a) => a.map(x => `<li>${esc(x)}</li>`).join('');
+  return `<section class="card ai-card"><span class="kicker">${ICON.spark} WEEKLY REVIEW</span><h3>${esc(r.headline)}</h3>
+    ${r.improved?.length ? `<h4>Improved</h4><ul>${li(r.improved)}</ul>` : ''}${r.stalled?.length ? `<h4>Stalled</h4><ul>${li(r.stalled)}</ul>` : ''}
+    <h4>Next week</h4><p>${esc(r.change)}</p><button class="btn small ghost" data-a="review">${S.busy === 'review' ? '<span class="spinner sm"></span>' : 'Refresh'}</button></section>`;
+}
+
 // ---------------- actions ----------------
 const A = {
   tab: (d) => { S.view = { name: d.v === 'train' ? 'home' : d.v }; if (d.v === 'settings') S.setupDraft = null; render(); },
@@ -544,6 +624,11 @@ const A = {
   trimRest: () => { const a = S.active; a.exercises.forEach(e => { if (e.sets.every(s => !s.done)) { const k = e.sets.map(s => !s.warmup).lastIndexOf(true); if (e.sets.filter(s => !s.warmup).length > 2) e.sets.splice(k, 1); } }); a.trimmed = true; persistActive(); toast('Trimmed. Rough day noted.'); render(); },
   dismissTrim: () => { S.active.trimmed = true; S.active.roughDismissed = true; persistActive(); render(); },
   finish: finishWorkout,
+  askOpen: () => { S.sheet = { type: 'ask', text: '' }; render(); },
+  askQuick: (d) => { const t = document.getElementById('askIn'); t.value = t.value ? `${t.value}. ${d.v}` : d.v; },
+  askSend: () => reworkSession(document.getElementById('askIn').value.trim()),
+  swapAsk: () => swapWithClaude(document.getElementById('swapAsk').value.trim()),
+  review: () => weeklyReview(),
   doFinish: () => { S.sheet = { type: 'finish' }; finishWorkout(); },
   discard: () => { S.sheet = { type: 'discard' }; render(); },
   doDiscard: () => { S.active = null; S.sheet = null; persistActive(); S.view = { name: 'home' }; render(); },
@@ -562,7 +647,24 @@ const A = {
   logGame: () => { S.games = [...(S.games || []).filter(t => Date.now() - t < 14 * 864e5), Date.now()]; persistProfile(); toast('Game logged. Leg recovery updated.'); render(); },
   toggleGameWeek: () => { const k = E.weekKey(Date.now()); S.gameSkips = S.gameSkips.includes(k) ? S.gameSkips.filter(x => x !== k) : [...S.gameSkips, k]; persistProfile(); render(); },
   draft: (d) => { const st = draft().settings; st[d.f] = d.f === 'gameDay' ? (d.v === '' ? '' : Number(d.v)) : isNaN(Number(d.v)) ? d.v : Number(d.v); render(); },
-  saveSetup: () => { const d = draft(); S.settings = d.settings; S.equipment = d.equipment; S.setupDraft = null; persistProfile(); S.view = { name: 'home' }; toast('Saved'); render(); },
+  saveSetup: async () => {
+    const ci = document.getElementById('commentsIn'); const d = draft(); if (ci) d.settings.comments = ci.value;
+    const prev = S.settings; const st = d.settings;
+    const goalsChanged = JSON.stringify(prev?.goals || {}) !== JSON.stringify(st.goals || {}) || (prev?.comments || '') !== (st.comments || '');
+    S.settings = st; S.equipment = d.equipment; persistProfile();
+    if (goalsChanged && (st.comments || '').trim()) {
+      S.busy = 'goals'; render();
+      try {
+        const g = st.goals || {};
+        const res = await askClaude('goals', { goals: Object.keys(g).filter(k => g[k]), comments: st.comments, library: libraryText(S), muscles: MUSCLE_KEYS });
+        S.settings = { ...S.settings, ai: { ...res, avoid: (res.avoid || []).filter(id => EX[id]), prefer: (res.prefer || []).filter(id => EX[id]), at: Date.now() } };
+        persistProfile(); toast(`${ICON.spark} Plan updated`, 'ok');
+      } catch (e) { toast(`Saved, but Claude couldn't read your comments: ${esc(e.message)}`); }
+      S.busy = null;
+    } else if (goalsChanged && !(st.comments || '').trim()) { S.settings = { ...S.settings, ai: null }; persistProfile(); toast('Saved'); }
+    else toast('Saved');
+    S.setupDraft = null; S.view = { name: prev ? 'settings' : 'home' }; lastViewKey = ''; render();
+  },
   addBw: () => { const v = Number(document.getElementById('bwIn').value); if (!v) return; S.bodyweight = [...(S.bodyweight || []), { kg: v, at: Date.now() }]; persistProfile(); toast(`Logged ${v} kg`); render(); },
   signOut: () => { DB.signOut(); },
   resetPw: async () => { const email = document.querySelector('input[name=email]').value; if (!email) { S.authError = 'Enter your email first'; return render(); } try { await DB.resetPassword(email); S.authError = 'Reset email sent'; } catch (e) { S.authError = e.message; } render(); }
@@ -579,7 +681,8 @@ document.addEventListener('click', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const el = ev.target;
-  if (el.dataset.a === 'draftAddon') { const st = draft().settings; st.addons = { ...(st.addons || {}), [el.dataset.f]: el.checked }; return; }
+  if (el.dataset.a === 'draftGoal') { const st = draft().settings; st.goals = { ...(st.goals || {}), [el.dataset.f]: el.checked }; return; }
+  if (el.id === 'commentsIn') { draft().settings.comments = el.value; return; }
   if (el.dataset.a === 'draftEq') { const d = draft(); d.equipment = el.checked ? [...new Set([...d.equipment, el.dataset.f])] : d.equipment.filter(k => k !== el.dataset.f); el.closest('.chip').classList.toggle('on', el.checked); return; }
   if (el.id === 'noteIn') { S.notes = { ...S.notes, [el.dataset.ex]: el.value }; persistProfile(); }
   if (el.id === 'wname') { const w = S.workouts.find(x => x.id === el.dataset.id); if (w) { w.name = el.value || w.name; DB.saveWorkout(S, w); } }
@@ -640,7 +743,8 @@ DB.onAuth(async (user) => {
 function applyProfile(p) {
   for (const k of DB.PROFILE_KEYS) if (p[k] != null) S[k] = p[k];
   S.equipment = S.equipment?.length ? S.equipment : [...DEFAULT_EQUIPMENT];
-  S.excluded ||= []; S.boosted ||= []; S.gameSkips ||= []; S.games ||= []; S.soreness ||= {}; S.notes ||= {}; S.barOverrides ||= {}; S.bodyweight ||= [];
+  S.excluded ||= []; S.boosted ||= []; S.gameSkips ||= []; S.games ||= []; S.soreness ||= {}; S.notes ||= {}; S.barOverrides ||= {}; S.bodyweight ||= []; S.reviews ||= {};
+  if (S.settings && !S.settings.goals) S.settings = { ...S.settings, goals: E.goalsOf(S) };
 }
 render();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { });

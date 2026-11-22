@@ -19,7 +19,7 @@ try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabMana
 catch { db = initializeFirestore(app, {}); }
 
 const LS = 'liftlab.cache.v1', LS_ACTIVE = 'liftlab.active.v1';
-export const PROFILE_KEYS = ['settings', 'equipment', 'excluded', 'boosted', 'barOverrides', 'soreness', 'gameSkips', 'games', 'bodyweight', 'notes'];
+export const PROFILE_KEYS = ['settings', 'equipment', 'excluded', 'boosted', 'barOverrides', 'soreness', 'gameSkips', 'games', 'bodyweight', 'notes', 'reviews'];
 
 const clean = (o) => JSON.parse(JSON.stringify(o)); // strip undefined for Firestore
 
