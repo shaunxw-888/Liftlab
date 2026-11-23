@@ -336,6 +336,13 @@ export function generateSession(state, tpl, opts = {}) {
   const minutes = (opts.minutes || Number(state.settings?.minutes) || 60) - (mobLevel === 'off' ? 0 : 4);
   const plan = planWeek(state.settings);
   const freq = frequency(plan);
+  // Rebalance: build from what this week still needs, spread over the sessions still to come.
+  const weekDone = weekWorkouts(state, now);
+  const doneSets = setsPerMuscle(weekDone);
+  const doneKeys = new Set(weekDone.map(w => w.templateKey));
+  const remaining = plan.filter(p => !doneKeys.has(p.key) || p.key === tpl.key);
+  const inPlan = remaining.some(p => p.key === tpl.key);
+  const leftFor = (m) => remaining.filter(p => SLOTS[p.type][p.variant].includes(m)).length;
   const ready = readiness(state, now);
   const lvl = (k) => addonLevel(state, k);
   const rel = gameRelation(state, now);
@@ -355,7 +362,12 @@ export function generateSession(state, tpl, opts = {}) {
 
   slots.forEach((m, idx) => {
     const wk = weeklyTarget(m, state); if (!wk) return;
-    let n = Math.round(wk / (freq[m] || 1));
+    let n;
+    if (inPlan) {
+      const need = Math.max(0, wk - (doneSets[m] || 0));
+      if (need < 1.5) return; // already covered this week
+      n = Math.round(need / Math.max(1, leftFor(m)));
+    } else n = Math.round(wk / (freq[m] || 1)); // extra session beyond the plan
     if (ready[m] < 50) n = Math.max(2, Math.round(n * 0.6)); // under-recovered: trim
     if (ready[m] < 25) return; // very sore: skip
     // Fewer exercises with more sets: every exercise gets at least 3 working sets.

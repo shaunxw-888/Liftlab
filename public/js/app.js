@@ -159,7 +159,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.0</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.1</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -177,24 +177,26 @@ function homeScreen() {
   const typeLabel = (c) => c.type === 'full' ? 'Full body' : c.type === 'upper' ? 'Upper body' : 'Lower body + core';
   let upNext = '';
   if (cards.length) {
-    const c = cards[0]; const mins = S.cardMin[c.key] || Number(S.settings.minutes) || 60;
+    upNext = `<div class="carousel" id="carousel">${cards.map((c, ci) => {
+    const mins = S.cardMin[c.key] || Number(S.settings.minutes) || 60;
     const p = E.generateSession(S, c, { minutes: mins, now });
     const sets = p.exercises.reduce((a, e) => a + e.sets.filter(s => !s.warmup).length, 0);
-    upNext = `<section class="card hero">
-      <div class="row nopad"><span class="cap accent">Up next · ${typeLabel(c)}</span><span class="cap">~${p.estMinutes} min</span></div>
+    return `<section class="card hero" id="card-${c.key}">
+      <div class="row nopad"><span class="cap accent">${ci === 0 ? 'Recommended · ' : ''}${typeLabel(c)}</span><span class="cap">~${p.estMinutes} min</span></div>
       <h2>${c.muscles.slice(0, 4).map(m => MUSCLES[m]).join(', ')}</h2>
       <div class="ready-row">${Object.entries(c.perMuscle).map(([m, r]) => `<span class="rchip" style="--c:${heatColor(r)}">${MUSCLES[m]} ${r}%</span>`).join('')}</div>
       ${c.note ? `<div class="note warn">${c.note}</div>` : ''}
       <div class="stats3"><div><b>${p.exercises.length}</b><small>exercises</small></div><div><b>${sets}</b><small>sets</small></div><div><b>${mins}</b><small>min budget</small></div></div>
       <div class="seg small">${[30, 45, 60, 75, 90].map(m => `<button class="${m === mins ? 'on' : ''}" data-a="cardMin" data-k="${c.key}" data-v="${m}">${m}</button>`).join('')}</div>
       <button class="btn primary big wide" data-a="openCard" data-k="${c.key}">${S.active ? 'View session' : 'Start session'}</button>
-    </section>`;
+    </section>`; }).join('')}</div>
+    ${cards.length > 1 ? `<div class="dots" id="dots">${cards.map((c, ci) => `<i class="${ci === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}`;
   }
-  const later = cards.slice(1).map(c => {
+  const later = cards.map(c => {
     const legs = ['quads', 'hamstrings', 'glutes'].filter(m => c.muscles.includes(m));
     const low = Object.entries(c.perMuscle).sort((a, b) => a[1] - b[1])[0];
     const status = c.note ? ['Not today', 'warn'] : c.score < 70 ? ['Recovering', 'warn'] : ['Ready', ''];
-    return `<button class="listrow" data-a="openCard" data-k="${c.key}"><div class="grow"><b>${typeLabel(c)}</b><small>${c.note || `${MUSCLES[low[0]]} ${low[1]}%`}</small></div><span class="status ${status[1]}">${status[0]}</span>${ICON.chev}</button>`;
+    return `<button class="listrow" data-a="cardFocus" data-k="${c.key}"><div class="grow"><b>${typeLabel(c)}</b><small>${c.note || `${MUSCLES[low[0]]} ${low[1]}%`}</small></div><span class="status ${status[1]}">${status[0]}</span>${ICON.chev}</button>`;
   }).join('');
   const mobOn = E.goalsOf(S).mobility && S.settings.mobilityMode !== 'before';
   let mobCard = '';
@@ -211,7 +213,7 @@ function homeScreen() {
     <div class="weekbar">${segs}</div><p class="sub">${done.length} of ${total} sessions done</p>
     ${S.active ? `<button class="card resume" data-a="openSession"><span class="cap accent">In progress</span><b>${esc(S.active.name)}</b><small>Tap to resume</small></button>` : ''}
     ${cards.length ? upNext : `<section class="card hero center-text"><h2>Week done</h2><p class="sub">All ${total} sessions complete. Rest up, or add an extra one.</p><button class="btn wide" data-a="extraSession">Extra session</button></section>`}
-    ${later ? `<span class="cap block">Later this week</span><div class="list">${later}</div>` : ''}
+    ${cards.length > 1 ? `<span class="cap block">Remaining this week · tap to pick</span><div class="list">${later}</div>` : ''}
     ${mobCard}
     <button class="card recov" data-a="recoveryOpen"><div class="mini">${recoveryMap(ready, 120)}</div><div class="grow"><span class="cap">Recovery</span><b>${worst[0][1] >= 85 ? 'Fully recovered' : `${MUSCLES[worst[0][0]]} ${worst[0][1]}%`}</b><small>${worst[0][1] >= 85 ? 'Every muscle is ready' : `${MUSCLES[worst[1][0]]} ${worst[1][1]}% · tap for details`}</small></div>${ICON.chev}</button>
     ${gd !== '' && gd != null || recentGames.length ? `<section class="card">
@@ -305,6 +307,17 @@ function exerciseScreen() {
 // ---------------- mobility routine ----------------
 function mobilityScreen() {
   const m = S.mob; if (!m) { S.view = { name: 'home' }; return homeScreen(); }
+  if (m.phase === 'overview') {
+    const drills = [...new Set(m.steps.map(x => x.drill))];
+    const secs = m.steps.reduce((a, x) => a + x.secs + M.PREP_SECS, 0);
+    return `<div class="screen">
+      <header class="top"><button class="icon-btn" data-a="mobCancel" aria-label="Back">${ICON.back}</button><span></span><span></span></header>
+      <div class="titleblock"><span class="cap accent">Mobility</span><h1>${drills.length} stretches · ${Math.round(secs / 60)} min</h1><p class="sub">Each stretch is held for 2 rounds${drills.some(id => M.DRILL[id].sides === 2) ? ', each side' : ''}. The timer starts when you tap Start.</p></div>
+      <div class="list">${drills.map(id => { const d = M.DRILL[id]; const alt = M.DRILLS.some(x => x.area === d.area && x.id !== id);
+        return `<div class="listrow static mobitem"><div class="grow"><span class="cap">${M.AREAS[d.area]}</span><b>${d.name}</b><small>${d.hold}s${d.sides === 2 ? ' per side' : ''} × 2 · ${d.cue}</small></div>${alt ? `<button class="btn small" data-a="mobSwap" data-v="${id}">Swap</button>` : ''}</div>`; }).join('')}</div>
+      <div class="spacer"></div>
+      <div class="bottom-cta"><button class="btn primary big wide" data-a="mobGo">Start</button></div></div>`;
+  }
   const st = m.steps[m.i]; const d = st && M.DRILL[st.drill];
   const left = m.paused ? m.remaining : Math.max(0, m.end - Date.now());
   const total = (m.phase === 'prep' ? M.PREP_SECS : st.secs) * 1000;
@@ -322,7 +335,7 @@ function mobilityScreen() {
 function mobStart() {
   unlockAudio();
   const r = M.buildRoutine(S);
-  S.mob = { steps: r.steps, i: 0, phase: 'prep', end: Date.now() + M.PREP_SECS * 1000, paused: false, remaining: 0, secs: {}, startedAt: Date.now() };
+  S.mob = { steps: r.steps, i: 0, phase: 'overview', end: 0, paused: false, remaining: 0, secs: {}, startedAt: Date.now() };
   S.view = { name: 'mobility' }; render();
 }
 function mobAdvance(credit) {
@@ -712,8 +725,15 @@ const A = {
   trimRest: () => { const a = S.active; a.exercises.forEach(e => { if (e.sets.every(s => !s.done)) { const k = e.sets.map(s => !s.warmup).lastIndexOf(true); if (e.sets.filter(s => !s.warmup).length > 2) e.sets.splice(k, 1); } }); a.trimmed = true; persistActive(); toast('Trimmed. Rough day noted.'); render(); },
   dismissTrim: () => { S.active.trimmed = true; S.active.roughDismissed = true; persistActive(); render(); },
   finish: finishWorkout,
+  cardFocus: (d) => { const el = document.getElementById('card-' + d.k); el?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); document.querySelector('.screen')?.scrollTo({ top: 0, behavior: 'smooth' }); },
   recoveryOpen: () => { S.sheet = { type: 'recovery' }; render(); },
   mobStart: () => mobStart(),
+  mobGo: () => { unlockAudio(); const m = S.mob; m.phase = 'prep'; m.end = Date.now() + M.PREP_SECS * 1000; render(); },
+  mobCancel: () => { S.mob = null; S.view = { name: 'home' }; render(); },
+  mobSwap: (d) => { const m = S.mob; const cur = M.DRILL[d.v]; const opts = M.DRILLS.filter(x => x.area === cur.area && x.id !== cur.id); const nd = opts[0]; if (!nd) return;
+    const area = cur.area; const first = m.steps.findIndex(x => x.drill === cur.id); const others = m.steps.filter(x => x.drill !== cur.id);
+    const ns = []; for (let r = 1; r <= 2; r++) for (let k = 0; k < nd.sides; k++) ns.push({ drill: nd.id, area, secs: nd.hold, side: nd.sides === 2 ? (k ? 'Right' : 'Left') : null, round: r, rounds: 2 });
+    others.splice(first, 0, ...ns); m.steps = others; render(); },
   mobPause: () => { const m = S.mob; if (m.paused) { m.paused = false; m.end = Date.now() + m.remaining; } else { m.paused = true; m.remaining = Math.max(0, m.end - Date.now()); } render(); },
   mobSkip: () => { const m = S.mob; const st = m.steps[m.i]; const done = m.phase === 'hold' ? Math.round(st.secs - Math.max(0, (m.paused ? m.remaining : m.end - Date.now())) / 1000) : 0; if (m.phase === 'prep') m.phase = 'hold'; mobAdvance(Math.max(0, done)); },
   mobPrev: () => { const m = S.mob; m.i = Math.max(0, m.i - (m.phase === 'prep' ? 1 : 0)); m.phase = 'prep'; m.paused = false; m.end = Date.now() + M.PREP_SECS * 1000; render(); },
@@ -785,6 +805,11 @@ function updateSetField(i, j, f, raw) {
 const selectAll = (el) => { try { el.setSelectionRange(0, el.value.length); } catch { el.select(); } };
 document.addEventListener('focusin', (ev) => { if (ev.target.classList?.contains('setin')) { selectAll(ev.target); setTimeout(() => selectAll(ev.target), 0); } });
 document.addEventListener('pointerup', (ev) => { if (ev.target.classList?.contains('setin') && document.activeElement === ev.target && !ev.target.dataset.sel) { ev.target.dataset.sel = '1'; setTimeout(() => selectAll(ev.target), 0); } });
+document.addEventListener('scroll', (ev) => {
+  const c = ev.target; if (c.id !== 'carousel') return;
+  const i = Math.round(c.scrollLeft / (c.firstElementChild?.offsetWidth + 12 || 1));
+  document.querySelectorAll('#dots i').forEach((d, k) => d.classList.toggle('on', k === i));
+}, true);
 document.addEventListener('focusout', (ev) => { if (ev.target.classList?.contains('setin')) delete ev.target.dataset.sel; });
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.classList?.contains('setin')) ev.target.blur(); });
 
@@ -852,7 +877,7 @@ document.addEventListener('touchend', () => {
 // ---------------- timers ----------------
 function tick() {
   const m = S.mob;
-  if (m && S.view.name === 'mobility' && !m.paused) {
+  if (m && S.view.name === 'mobility' && !m.paused && m.phase !== 'overview') {
     const st = m.steps[m.i]; const left = m.end - Date.now();
     const total = (m.phase === 'prep' ? M.PREP_SECS : st.secs) * 1000; const C = 2 * Math.PI * 92;
     const t = document.getElementById('mob-time'); if (t) t.textContent = Math.max(0, Math.ceil(left / 1000));
