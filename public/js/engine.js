@@ -331,7 +331,8 @@ export function estimateMinutes(items) {
 export function generateSession(state, tpl, opts = {}) {
   const now = opts.now || Date.now();
   const g = goalsOf(state);
-  const mobLevel = addonLevel(state, 'mobility');
+  // Mobility lives in its own routine unless the user chose to do it before gym sessions.
+  const mobLevel = state.settings?.mobilityMode === 'before' ? addonLevel(state, 'mobility') : 'off';
   const minutes = (opts.minutes || Number(state.settings?.minutes) || 60) - (mobLevel === 'off' ? 0 : 4);
   const plan = planWeek(state.settings);
   const freq = frequency(plan);

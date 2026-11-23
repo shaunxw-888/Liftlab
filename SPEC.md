@@ -39,3 +39,8 @@
 
 ## Not possible as a web app
 - Apple Health sync, haptics, reliable lock-screen rest alerts.
+
+## v2.0
+- Design system: Inter / Inter Tight bundled locally, type scale 34/26/22/17/15/13/11, 20 px edges, native slide transitions.
+- Home: Up next hero card, Later this week list, mobility card, compact recovery card (full map in a sheet), game card.
+- Mobility: separate routine by default (Settings: Separately / Before gym). ~12 min guided holds with timer, 4 areas furthest from target; target ~10 min static stretching per area per week (Sports Med 2025 meta-analysis), any number of sessions.

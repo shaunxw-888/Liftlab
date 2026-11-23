@@ -4,6 +4,7 @@ import * as DB from './store.js';
 import { muscleIcon, recoveryMap, heatColor } from './bodymap.js';
 import { lineChart } from './charts.js';
 import { askClaude, libraryText, MUSCLE_KEYS } from './claude.js';
+import * as M from './mobility.js';
 
 // ---------------- icons ----------------
 const ICON = {
@@ -29,7 +30,7 @@ const ICON = {
 // ---------------- state ----------------
 const S = {
   uid: null, loaded: false, settings: null, equipment: [], excluded: [], boosted: [], barOverrides: {}, soreness: {},
-  gameSkips: [], games: [], bodyweight: [], notes: {}, reviews: {}, busy: null, workouts: [], active: null, preview: null,
+  gameSkips: [], games: [], bodyweight: [], notes: {}, reviews: {}, mobilityLog: [], mob: null, busy: null, workouts: [], active: null, preview: null,
   view: { name: 'home' }, sheet: null, cardMin: {}, toast: null, authError: '', setupDraft: null
 };
 const $app = document.getElementById('app');
@@ -61,22 +62,27 @@ function toast(msg, kind = '') { S.toast = { msg, kind }; renderToast(); clearTi
 function renderToast() { const t = document.getElementById('toast'); if (!t) return; t.innerHTML = S.toast ? `<div class="toast ${S.toast.kind}">${S.toast.msg}</div>` : ''; }
 
 // ---------------- render ----------------
-let lastViewKey = '';
+let lastViewKey = '', lastViewName = 'home';
+const DEPTH = { home: 0, progress: 0, settings: 0, session: 1, mobility: 1, exdetail: 1, exercise: 2, summary: 2 };
 function render() {
   const sc = document.querySelector('.screen'); const key = JSON.stringify(S.view);
-  const keep = sc && key === lastViewKey ? sc.scrollTop : 0;
-  lastViewKey = key;
+  const same = key === lastViewKey;
+  const keep = sc && same ? sc.scrollTop : 0;
+  const depth = DEPTH[S.view.name] ?? 0, prevDepth = DEPTH[lastViewName] ?? 0;
+  const anim = same ? '' : depth > prevDepth ? 'push' : depth < prevDepth ? 'pop' : 'fade';
+  lastViewKey = key; lastViewName = S.view.name;
   let body;
   if (!S.uid) body = authScreen();
   else if (!S.loaded) body = `<div class="screen center"><div class="spinner"></div></div>`;
   else if (!S.settings) body = setupScreen(true);
   else body = screen();
-  const showTabs = S.uid && S.loaded && S.settings && !['exercise', 'summary', 'session'].includes(S.view.name);
+  const showTabs = S.uid && S.loaded && S.settings && !['exercise', 'summary', 'session', 'mobility'].includes(S.view.name);
   $app.innerHTML = body + (showTabs ? miniBar() + tabBar() : '') + sheetHtml() + `<div id="toast"></div>`;
   renderToast();
-  const nsc = document.querySelector('.screen'); if (nsc) nsc.scrollTop = keep;
+  const nsc = document.querySelector('.screen'); if (nsc) { nsc.scrollTop = keep; if (anim) nsc.classList.add('anim-' + anim); }
   tick();
 }
+
 function screen() {
   switch (S.view.name) {
     case 'home': return homeScreen();
@@ -86,6 +92,7 @@ function screen() {
     case 'progress': return progressScreen();
     case 'exdetail': return exDetailScreen();
     case 'settings': return setupScreen(false);
+    case 'mobility': return mobilityScreen();
     default: return homeScreen();
   }
 }
@@ -116,7 +123,7 @@ function authScreen() {
 // ---------------- setup / settings ----------------
 function draft() {
   if (!S.setupDraft) S.setupDraft = {
-    settings: structuredClone(S.settings ? { ...S.settings, goals: E.goalsOf(S) } : { goals: { muscle: true }, days: 3, minutes: 60, gameDay: 4, comments: '' }),
+    settings: structuredClone(S.settings ? { mobilityMode: 'separate', ...S.settings, goals: E.goalsOf(S) } : { goals: { muscle: true }, days: 3, minutes: 60, gameDay: 4, comments: '', mobilityMode: 'separate' }),
     equipment: [...(S.equipment?.length ? S.equipment : DEFAULT_EQUIPMENT)]
   };
   return S.setupDraft;
@@ -137,7 +144,8 @@ function setupScreen(first) {
       ${goal('cut', 'Cutting', 'Slightly less volume, keep weights heavy')}
       ${goal('jump', 'Jump higher / athletic', 'Plyos first in lower and full sessions')}
       ${goal('posture', 'Back and neck (clinic posture)', 'Upper back and deep neck work')}
-      ${goal('mobility', 'Mobility', 'Short drills during rest periods')}
+      ${goal('mobility', 'Mobility', 'Static stretching, about 10 min per area each week')}
+      ${st.goals?.mobility ? `<div class="subopt"><span class="sub">Do mobility</span>${seg('mobilityMode', [['separate', 'Separately'], ['before', 'Before gym']])}</div>` : ''}
       <h3 class="mt">Anything else?</h3>
       <textarea id="commentsIn" placeholder="e.g. want to dunk by mid-year, lower back tight after long clinic days, prioritise arms">${esc(st.comments || '')}</textarea>
       <p class="muted small">Claude reads this and fine-tunes your programme.</p>
@@ -151,7 +159,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v1.8</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.0</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -164,37 +172,54 @@ function homeScreen() {
   const rel = E.gameRelation(S, now, true);
   const gd = S.settings.gameDay;
   const recentGames = (S.games || []).filter(t => now - t < 7 * 864e5).sort((a, b) => b - a);
-  const relDay = (t) => { const d = Math.round((E.dayStart(now) - E.dayStart(t)) / 864e5); return d === 0 ? 'Today' : d === 1 ? 'Yesterday' : `${d} days ago`; };
-  const wk = E.weekKey(now);
-  const skipped = S.gameSkips.includes(wk);
-  const cardHtml = cards.map((c, i) => {
-    const mins = S.cardMin[c.key] || Number(S.settings.minutes) || 60;
-    const preview = E.generateSession(S, c, { minutes: mins, now });
-    const sets = preview.exercises.reduce((a, e) => a + e.sets.filter(s => !s.warmup).length, 0);
-    return `<article class="scard ${i === 0 ? 'first' : ''}">
-      <div class="scard-top"><span class="kicker">${c.type === 'full' ? 'FULL BODY' : c.type === 'upper' ? 'UPPER BODY' : 'LOWER BODY + CORE'}</span>${i === 0 ? '<span class="pill">Up next</span>' : ''}</div>
+  const relDay = (t) => { const d = Math.round((E.dayStart(now) - E.dayStart(t)) / 864e5); return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
+  const skipped = S.gameSkips.includes(E.weekKey(now));
+  const typeLabel = (c) => c.type === 'full' ? 'Full body' : c.type === 'upper' ? 'Upper body' : 'Lower body + core';
+  let upNext = '';
+  if (cards.length) {
+    const c = cards[0]; const mins = S.cardMin[c.key] || Number(S.settings.minutes) || 60;
+    const p = E.generateSession(S, c, { minutes: mins, now });
+    const sets = p.exercises.reduce((a, e) => a + e.sets.filter(s => !s.warmup).length, 0);
+    upNext = `<section class="card hero">
+      <div class="row nopad"><span class="cap accent">Up next · ${typeLabel(c)}</span><span class="cap">~${p.estMinutes} min</span></div>
       <h2>${c.muscles.slice(0, 4).map(m => MUSCLES[m]).join(', ')}</h2>
       <div class="ready-row">${Object.entries(c.perMuscle).map(([m, r]) => `<span class="rchip" style="--c:${heatColor(r)}">${MUSCLES[m]} ${r}%</span>`).join('')}</div>
       ${c.note ? `<div class="note warn">${c.note}</div>` : ''}
-      <p class="meta">${preview.estMinutes} min · ${preview.exercises.length} exercises · ${sets} sets</p>
+      <div class="stats3"><div><b>${p.exercises.length}</b><small>exercises</small></div><div><b>${sets}</b><small>sets</small></div><div><b>${mins}</b><small>min budget</small></div></div>
       <div class="seg small">${[30, 45, 60, 75, 90].map(m => `<button class="${m === mins ? 'on' : ''}" data-a="cardMin" data-k="${c.key}" data-v="${m}">${m}</button>`).join('')}</div>
-      <button class="btn primary big wide" data-a="openCard" data-k="${c.key}">${S.active ? 'View session' : 'Start session'} ${ICON.chev}</button>
-    </article>`;
+      <button class="btn primary big wide" data-a="openCard" data-k="${c.key}">${S.active ? 'View session' : 'Start session'}</button>
+    </section>`;
+  }
+  const later = cards.slice(1).map(c => {
+    const legs = ['quads', 'hamstrings', 'glutes'].filter(m => c.muscles.includes(m));
+    const low = Object.entries(c.perMuscle).sort((a, b) => a[1] - b[1])[0];
+    const status = c.note ? ['Not today', 'warn'] : c.score < 70 ? ['Recovering', 'warn'] : ['Ready', ''];
+    return `<button class="listrow" data-a="openCard" data-k="${c.key}"><div class="grow"><b>${typeLabel(c)}</b><small>${c.note || `${MUSCLES[low[0]]} ${low[1]}%`}</small></div><span class="status ${status[1]}">${status[0]}</span>${ICON.chev}</button>`;
   }).join('');
+  const mobOn = E.goalsOf(S).mobility && S.settings.mobilityMode !== 'before';
+  let mobCard = '';
+  if (mobOn) {
+    const w = M.weeklySecs(S, now); const areas = M.areasFor(S); const r = M.buildRoutine(S, now); const fin = M.weekDone(S, now);
+    mobCard = `<section class="card">
+      <div class="row nopad"><span class="cap">Mobility · this week</span><span class="cap ${fin ? 'ok' : ''}">${fin ? 'Done for the week' : `~${r.minutes} min`}</span></div>
+      <div class="mobbars">${areas.map(a => { const pct = Math.min(100, w[a] / M.WEEKLY_TARGET_SECS * 100); return `<div><span>${M.AREAS[a]}</span><i><em style="width:${pct}%"></em></i><small>${Math.floor(w[a] / 60)}/10</small></div>`; }).join('')}</div>
+      <button class="btn wide" data-a="mobStart">${fin ? 'Extra mobility session' : 'Start mobility'}</button></section>`;
+  }
+  const worst = Object.entries(ready).filter(([m]) => m !== 'neck').sort((a, b) => a[1] - b[1]).slice(0, 2);
   return `<div class="screen">
-    <header class="top"><div><small class="muted">${new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</small><h1>This week</h1></div></header>
-    <div class="weekbar">${segs}</div><p class="muted pad">${done.length} of ${total} completed this week</p>
-    ${S.active ? `<button class="card resume" data-a="openSession"><b>Workout in progress</b><span>${esc(S.active.name)} · tap to resume</span></button>` : ''}
-    ${cards.length ? `<div class="carousel">${cardHtml}</div>` : `<section class="card done-week"><h2>Week done 💪</h2><p class="muted">All ${total} sessions complete. Rest up, or start an extra session below.</p><button class="btn" data-a="extraSession">Extra session</button></section>`}
-    ${gd !== '' && gd != null ? `<section class="card game"><div><b>${skipped ? 'No game this week' : `Game: ${DAYS[gd]}`}</b><small class="muted">${rel === 'before' ? 'Tomorrow. Legs are being kept fresh.' : rel === 'game' ? 'Today. Good luck!' : rel === 'after' ? 'Yesterday. Legs still recovering.' : 'Planned around automatically.'}</small></div>
-      <button class="btn small" data-a="toggleGameWeek">${skipped ? 'Undo' : 'No game this week'}</button></section>` : ''}
-    <section class="card"><div class="row"><b>Played basketball?</b><button class="btn small" data-a="logGameOpen">Log game</button></div>
-      ${recentGames.length ? recentGames.map(t => `<div class="row"><span>${ICON.check} ${relDay(t)}</span><button class="btn small ghost" data-a="removeGame" data-v="${t}">Remove</button></div>`).join('') : '<p class="muted small">Extra games count towards leg recovery.</p>'}</section>
-    ${done.length ? `<section class="card"><h3>Done this week</h3>${done.map(w => `<button class="row link" data-a="viewWorkout" data-v="${w.id}"><span>${ICON.check} ${esc(w.name)}</span><span class="muted">${dayName(w.startedAt)}</span></button>`).join('')}</section>` : ''}
-    <section class="card"><h3>Recovery</h3><p class="muted small">Estimated from what you've trained. Tap a muscle if you're sore.</p>
-      <div class="mapwrap" data-a="mapTap">${recoveryMap(ready)}</div>
-      <div class="legend"><span style="--c:#2F7BFF">Fresh</span><span style="--c:#7aa8ff">Good</span><span style="--c:#f5a524">Tired</span><span style="--c:#e5484d">Sore</span></div>
-      <div class="mgrid">${Object.keys(MUSCLES).filter(m => m !== 'neck').map(m => `<button class="mcell" data-a="soreOpen" data-v="${m}"><span class="dot" style="background:${heatColor(ready[m])}"></span>${MUSCLES[m]}<b>${ready[m]}%</b>${S.soreness[m] ? '<em>sore</em>' : ''}</button>`).join('')}</div></section>
+    <header class="top col"><span class="cap">${new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</span><h1>This week</h1></header>
+    <div class="weekbar">${segs}</div><p class="sub">${done.length} of ${total} sessions done</p>
+    ${S.active ? `<button class="card resume" data-a="openSession"><span class="cap accent">In progress</span><b>${esc(S.active.name)}</b><small>Tap to resume</small></button>` : ''}
+    ${cards.length ? upNext : `<section class="card hero center-text"><h2>Week done</h2><p class="sub">All ${total} sessions complete. Rest up, or add an extra one.</p><button class="btn wide" data-a="extraSession">Extra session</button></section>`}
+    ${later ? `<span class="cap block">Later this week</span><div class="list">${later}</div>` : ''}
+    ${mobCard}
+    <button class="card recov" data-a="recoveryOpen"><div class="mini">${recoveryMap(ready, 120)}</div><div class="grow"><span class="cap">Recovery</span><b>${worst[0][1] >= 85 ? 'Fully recovered' : `${MUSCLES[worst[0][0]]} ${worst[0][1]}%`}</b><small>${worst[0][1] >= 85 ? 'Every muscle is ready' : `${MUSCLES[worst[1][0]]} ${worst[1][1]}% · tap for details`}</small></div>${ICON.chev}</button>
+    ${gd !== '' && gd != null || recentGames.length ? `<section class="card">
+      ${gd !== '' && gd != null ? `<div class="row nopad"><div class="grow"><b>${skipped ? 'No game this week' : `Game ${DAYS[gd]}`}</b><small class="sub">${skipped ? 'Legs planned as normal' : rel === 'before' ? 'Tomorrow, legs kept fresh' : rel === 'game' ? 'Today. Good luck' : rel === 'after' ? 'Yesterday, legs recovering' : 'Planned around automatically'}</small></div><button class="btn small" data-a="toggleGameWeek">${skipped ? 'Undo' : 'No game'}</button></div>` : ''}
+      <div class="row nopad mt8"><div class="grow"><b>Extra game</b><small class="sub">${recentGames.length ? recentGames.map(relDay).join(', ') : 'Log any pickup games'}</small></div><button class="btn small" data-a="logGameOpen">Log</button></div>
+      ${recentGames.map(t => `<div class="row nopad"><small class="sub">Played ${relDay(t)}</small><button class="btn small ghost" data-a="removeGame" data-v="${t}">Remove</button></div>`).join('')}
+    </section>` : ''}
+    ${done.length ? `<span class="cap block">Done this week</span><div class="list">${done.map(w => `<button class="listrow" data-a="viewWorkout" data-v="${w.id}"><div class="grow"><b>${esc(w.name)}</b><small>${dayName(w.startedAt)}</small></div>${ICON.chev}</button>`).join('')}</div>` : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -215,19 +240,22 @@ function sessionScreen() {
         <div class="thumb">${muscleIcon(ex.primary, ex.secondary, 46)}${allDone ? `<span class="tick">${ICON.check}</span>` : ''}</div>
         <div class="exinfo">${e.superset ? '<span class="tag">Superset</span>' : ''}<b>${ex.name}</b>
           <small>${work.length} × ${t.reps}${u} ${t.weight != null ? `@ ${E.fmtKg(t.weight)} ${wLabel(ex)}` : ex.loading === 'bodyweight' ? '· BW' : ''}${active ? ` · ${doneN}/${work.length}` : ''}</small></div>
-        <button class="icon-btn" data-a="exMenu" data-v="${i}" aria-label="Options">${ICON.dots}</button>
+        <button class="icon-btn plain" data-a="exMenu" data-v="${i}" aria-label="Options">${ICON.dots}</button>
       </div></div>`;
   }).join('');
+  const totalSets = s.exercises.reduce((n, e) => n + e.sets.filter(x => !x.warmup).length, 0);
   return `<div class="screen">
-    <header class="top"><button class="icon-btn" data-a="back">${ICON.back}</button><h1 class="small">${esc(s.name)}</h1>
-      ${active ? `<span class="mono pill" id="wtimer">${fmtDur(Date.now() - s.startedAt)}</span>` : '<span></span>'}</header>
-    <div class="ready-row pad">${muscles.map(m => `<span class="rchip" style="--c:${heatColor(ready[m])}">${MUSCLES[m]} ${ready[m]}%</span>`).join('')}</div>
-    <div class="row pad"><b class="count">${s.exercises.length} exercises · ~${E.estimateMinutes(s.exercises) + (s.mobility?.length ? 4 : 0)} min</b><div class="row tight"><button class="btn small ai" data-a="askOpen">${ICON.spark} Ask Claude</button><button class="btn small" data-a="addExercise">+ Add</button></div></div>
+    <header class="top"><button class="icon-btn" data-a="back" aria-label="Back">${ICON.back}</button>
+      ${active ? `<span class="mono pill" id="wtimer">${fmtDur(Date.now() - s.startedAt)}</span>` : ''}
+      <button class="btn small ai" data-a="askOpen">${ICON.spark} Ask Claude</button></header>
+    <div class="titleblock"><span class="cap accent">${esc(s.name)}</span><h1>${muscles.slice(0, 3).map(m => MUSCLES[m]).join(', ')}</h1></div>
+    <div class="stats3 boxed"><div><b>${E.estimateMinutes(s.exercises) + (s.mobility?.length ? 4 : 0)}</b><small>minutes</small></div><div><b>${s.exercises.length}</b><small>exercises</small></div><div><b>${totalSets}</b><small>sets</small></div></div>
+    <div class="ready-row">${muscles.map(m => `<span class="rchip" style="--c:${heatColor(ready[m])}">${MUSCLES[m]} ${ready[m]}%</span>`).join('')}</div>
     ${s.aiNote ? `<div class="badge">${ICON.spark} ${esc(s.aiNote)}</div>` : ''}
     ${lowered >= 2 && !s.trimmed ? `<div class="card note"><b>Rough day?</b><span>You've lowered a couple of lifts. Trim a set from the rest of the session? This won't count against your progression.</span><div class="row"><button class="btn small primary" data-a="trimRest">Trim</button><button class="btn small" data-a="dismissTrim">Keep going</button></div></div>` : ''}
-    ${s.mobility?.length ? `<section class="card mob"><h3>Mobility warm-up · ~4 min</h3><p class="muted small">Do these first, then start your first lift.</p>${s.mobility.map(id => { const x = EX[id]; const on = (s.mobDone || []).includes(id);
+    ${s.mobility?.length ? `<section class="card mob"><span class="cap">Mobility warm-up · ~4 min</span>${s.mobility.map(id => { const x = EX[id]; const on = (s.mobDone || []).includes(id);
       return `<button class="row mobrow ${on ? 'on' : ''}" data-a="mobTick" data-v="${id}"><span class="mobchk">${on ? ICON.check : ''}</span><div class="grow"><b>${x.name}</b><small class="muted">${x.reps[0]}–${x.reps[1]}${unitOf(x) || ' reps'}${x.perSide ? ' per side' : ''} · ${x.reason}</small></div></button>`; }).join('')}</section>` : ''}
-    <p class="muted small pad">Swipe left on an exercise to swap it. Tap to open.</p>
+    <div class="row nopad listhead"><span class="cap">Exercises</span><div class="row tight"><small class="sub">Swipe left to swap</small><button class="btn small" data-a="addExercise">+ Add</button></div></div>
     <div class="exlist">${rows}</div>
     <div class="spacer"></div>
     <div class="bottom-cta">${active ? `<button class="btn ghost" data-a="discard">${ICON.x}</button><button class="btn primary big" data-a="finish">Finish</button>` : `<button class="btn primary big wide" data-a="startWorkout">Start workout</button>`}</div>
@@ -244,7 +272,8 @@ function exerciseScreen() {
     const label = s.warmup ? 'W' : String(++workN);
     const pb = E.plateBreakdown(ex, s.weight, S);
     const plates = pb ? `<div class="plates">${pb.perSide.map(p => `<i style="height:${E.PLATE_HEIGHT[p]}px;background:${E.PLATE_COLOURS[p]};color:${E.PLATE_TEXT[p]}"><span>${E.fmtKg(p)}</span></i>`).join('')}</div>` : '<div class="plates none"></div>';
-    return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''}">
+    const isNext = !s.done && j === e.sets.findIndex(x => !x.done);
+    return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''} ${isNext && !preview ? 'next' : ''}">
       ${preview ? `<div class="setnum">${label}</div>` : `<button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>`}
       <label class="cell"><input class="setin" inputmode="numeric" pattern="[0-9]*" data-i="${i}" data-j="${j}" data-f="reps" value="${s.reps ?? ''}"><small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></label>
       <label class="cell"><input class="setin" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="weight" value="${s.weight != null ? E.fmtKg(s.weight) : ''}" placeholder="${ex.loading === 'bodyweight' ? 'BW' : 'Set'}"><small>${wLabel(ex)}</small></label>
@@ -254,13 +283,14 @@ function exerciseScreen() {
   const next = a.exercises.findIndex((x, k) => k > i && x.sets.some(s => !s.done));
   const rest = a.rest;
   return `<div class="screen ex">
-    <header class="top"><button class="icon-btn" data-a="openSession">${ICON.back}</button><span></span>
-      <button class="icon-btn" data-a="swapOpen" data-v="${i}" aria-label="Swap">${ICON.swap}</button></header>
-    <div class="exhead">${muscleIcon(ex.primary, ex.secondary, 64)}<div><h1>${ex.name}</h1><small class="muted">${ex.primary.map(m => MUSCLES[m]).join(', ')}${e.superset ? ' · Superset' : ''}</small></div></div>
+    <header class="top"><button class="icon-btn" data-a="openSession" aria-label="Back to session">${ICON.back}</button>
+      <span class="cap mono">${i + 1} of ${a.exercises.length}${preview ? ' · preview' : ` · <span id="wtimer">${fmtDur(Date.now() - a.startedAt)}</span>`}</span>
+      <button class="icon-btn" data-a="swapOpen" data-v="${i}" aria-label="Swap exercise">${ICON.swap}</button></header>
+    <div class="exhead"><span class="thumb lg">${muscleIcon(ex.primary, ex.secondary, 56)}</span><div><h1>${ex.name}</h1>
+      <small class="sub">${ex.primary.map(m => MUSCLES[m]).join(', ')} · ${t.lo}–${t.hi} ${u || 'reps'}${ex.perSide ? ' per side' : ''} · <button class="linkbtn" data-a="restCycle" data-v="${i}">rest ${fmtDur((e.rest ?? ex.rest) * 1000)}</button>${e.superset ? ' · superset' : ''}</small></div></div>
     ${preview ? `<div class="badge muted-badge">Preview. Edit anything here, then tap Start workout.</div>` : ''}
     <div class="badge">${ICON.spark} ${esc(t.reason)}</div>
-    <div class="chips pad"><button class="chip" data-a="restCycle" data-v="${i}">${ICON.timer} Rest ${fmtDur((e.rest ?? ex.rest) * 1000)}</button><span class="chip muted">${t.lo}–${t.hi} ${u || 'reps'}</span>${ex.perSide ? '<span class="chip muted">per side</span>' : ''}</div>
-    <div class="sethead"><span>Set</span><span>${u === 's' ? 'Secs' : u === 'm' ? 'Metres' : 'Reps'}</span><span>${ex.loading === 'dumbbell' ? 'kg each' : 'Total kg'}</span><span></span></div>
+    <div class="sethead"><span>Set</span><span>${u === 's' ? 'Secs' : u === 'm' ? 'Metres' : 'Reps'}</span><span>${ex.loading === 'dumbbell' ? 'kg each' : 'Weight'}</span><span>${E.plateBreakdown(ex, 100, S) ? 'Plates per side' : ''}</span></div>
     <div class="sets">${rows}</div>
     <button class="btn dashed wide" data-a="addSet" data-v="${i}">+ Add set</button>
     ${(() => { const h = E.exerciseHistory(S, e.exId).slice(0, 3); return h.length ? `<section class="card"><h3>Last sessions</h3>${h.map(x => `<div class="row"><small class="muted">${shortDate(x.at)}</small><span>${x.sets.map(z => `${z.reps}${u}×${z.weight ?? 'BW'}`).join(', ')}</span></div>`).join('')}</section>` : ''; })()}
@@ -268,8 +298,46 @@ function exerciseScreen() {
     ${preview ? `<button class="btn primary big wide" data-a="startFrom" data-v="${i}">Start workout</button>${next >= 0 ? `<button class="btn wide" data-a="openEx" data-v="${next}">Next: ${EX[a.exercises[next].exId].name} ${ICON.chev}</button>` : ''}`
       : next >= 0 ? `<button class="btn wide" data-a="openEx" data-v="${next}">Next: ${EX[a.exercises[next].exId].name} ${ICON.chev}</button>` : `<button class="btn primary wide" data-a="openSession">Back to session</button>`}
     <div class="spacer"></div>
-    ${rest && !preview ? `<div class="restbar"><span class="kicker">REST</span><button data-a="restAdd" data-v="-15">-15s</button><span class="mono big" id="rest-time">${fmtDur(rest.end - Date.now())}</span><button data-a="restAdd" data-v="15">+15s</button><button class="icon-btn" data-a="restStop">${ICON.stop}</button><div class="restprog" id="rest-prog"></div></div>` : ''}
+    ${rest && !preview ? `<div class="restbar"><span class="cap accent">Rest</span><button data-a="restAdd" data-v="-15">−15s</button><span class="mono big" id="rest-time">${fmtDur(rest.end - Date.now())}</span><button data-a="restAdd" data-v="15">+15s</button><button class="icon-btn" data-a="restStop">${ICON.stop}</button><div class="restprog" id="rest-prog"></div></div>` : ''}
   </div>`;
+}
+
+// ---------------- mobility routine ----------------
+function mobilityScreen() {
+  const m = S.mob; if (!m) { S.view = { name: 'home' }; return homeScreen(); }
+  const st = m.steps[m.i]; const d = st && M.DRILL[st.drill];
+  const left = m.paused ? m.remaining : Math.max(0, m.end - Date.now());
+  const total = (m.phase === 'prep' ? M.PREP_SECS : st.secs) * 1000;
+  const C = 2 * Math.PI * 92;
+  const upcoming = m.steps.slice(m.i + 1).filter((x, k, arr) => x.drill !== st.drill && !arr.slice(0, k).some(y => y.drill === x.drill)).slice(0, 3);
+  return `<div class="screen mobscreen">
+    <header class="top"><button class="icon-btn" data-a="mobEnd" aria-label="End">${ICON.x}</button><span class="cap mono">${m.i + 1} of ${m.steps.length}</span><span style="width:44px"></span></header>
+    <div class="titleblock center-text"><span class="cap accent">${M.AREAS[st.area]}${st.side ? ` · ${st.side}` : ''} · round ${st.round} of ${st.rounds}</span><h1>${d.name}</h1><p class="sub">${d.cue}</p></div>
+    <div class="ringwrap"><svg viewBox="0 0 200 200" width="230" height="230"><circle cx="100" cy="100" r="92" class="rbg"/><circle id="mob-ring" cx="100" cy="100" r="92" class="rfg ${m.phase}" stroke-dasharray="${C * (1 - left / total)} ${C}" transform="rotate(-90 100 100)"/></svg>
+      <div class="ringtext"><span class="cap">${m.phase === 'prep' ? 'Get ready' : m.paused ? 'Paused' : 'Hold'}</span><b class="mono" id="mob-time">${Math.ceil(left / 1000)}</b></div></div>
+    <div class="row center gap"><button class="icon-btn lg" data-a="mobPrev" aria-label="Previous">${ICON.back}</button><button class="btn primary big" data-a="mobPause">${m.paused ? 'Resume' : 'Pause'}</button><button class="icon-btn lg" data-a="mobSkip" aria-label="Skip">${ICON.chev}</button></div>
+    ${upcoming.length ? `<span class="cap block">Up next</span><div class="list">${upcoming.map(x => `<div class="listrow static"><div class="grow"><b>${M.DRILL[x.drill].name}</b><small>${M.AREAS[x.area]} · ${x.secs}s${x.side ? ' per side' : ''}</small></div></div>`).join('')}</div>` : ''}
+    <div class="spacer"></div></div>`;
+}
+function mobStart() {
+  unlockAudio();
+  const r = M.buildRoutine(S);
+  S.mob = { steps: r.steps, i: 0, phase: 'prep', end: Date.now() + M.PREP_SECS * 1000, paused: false, remaining: 0, secs: {}, startedAt: Date.now() };
+  S.view = { name: 'mobility' }; render();
+}
+function mobAdvance(credit) {
+  const m = S.mob; const st = m.steps[m.i];
+  if (m.phase === 'hold' && credit) m.secs[st.area] = (m.secs[st.area] || 0) + credit;
+  if (m.phase === 'prep') { m.phase = 'hold'; m.end = Date.now() + st.secs * 1000; return render(); }
+  m.i++;
+  if (m.i >= m.steps.length) return mobFinish();
+  m.phase = 'prep'; m.end = Date.now() + M.PREP_SECS * 1000; render();
+}
+function mobFinish() {
+  const m = S.mob; S.mob = null;
+  const total = Object.values(m.secs).reduce((a, b) => a + b, 0);
+  if (total >= 30) { S.mobilityLog = [...(S.mobilityLog || []).filter(l => Date.now() - l.at < 70 * 864e5), { at: Date.now(), secs: m.secs }]; persistProfile(); toast(`${ICON.check} Mobility logged · ${Math.round(total / 60)} min`, 'ok'); }
+  S.view = { name: 'home' }; render();
 }
 
 // ---------------- summary ----------------
@@ -324,7 +392,7 @@ function progressScreen() {
   const cal = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(x => `<span class="ch">${x}</span>`).join('') + Array.from({ length: off }, () => '<span></span>').join('') + Array.from({ length: days }, (_, k) => { const n = k + 1; const id = wDays.get(n); return id ? `<button class="cd on" data-a="viewWorkout" data-v="${id}" data-from="progress">${n}</button>` : `<span class="cd ${n === d.getDate() ? 'today' : ''}">${n}</span>`; }).join('');
   return `<div class="screen">
     <header class="top"><h1>Progress</h1></header>
-    <div class="chips pad"><span class="chip big">${ICON.flame} ${thisWeek.length}/${plan.length} this week</span><span class="chip big">🔥 ${streak} wk streak</span><span class="chip big">${ICON.trophy} ${prs.length} PRs</span></div>
+    <div class="stats3 boxed"><div><b>${thisWeek.length}/${plan.length}</b><small>this week</small></div><div><b>${streak}</b><small>week streak</small></div><div><b>${prs.length}</b><small>PRs this week</small></div></div>
     ${reviewCard(thisWeek)}
     <section class="card"><h3>Sets per muscle this week</h3><p class="muted small">Grey = below target, green = in range, amber = above. Half sets count for secondary muscles.</p><div class="rings">${rings.map(ring).join('')}</div></section>
     ${prs.length ? `<section class="card"><h3>${ICON.trophy} Personal records this week</h3>${prs.map(p => `<button class="row link" data-a="exDetail" data-v="${p.exId}"><span>${EX[p.exId].name}</span><small class="accent">${p.s.pr} · ${p.s.reps} × ${p.s.weight ?? 'BW'}</small></button>`).join('')}</section>` : ''}
@@ -332,6 +400,7 @@ function progressScreen() {
     <div class="grid3"><section class="card stat"><small>Volume</small><b class="c-blue">${Math.round(cur.vol).toLocaleString()} kg</b>${delta(cur.vol, avg.vol)}</section>
       <section class="card stat"><small>Sets</small><b class="c-orange">${cur.sets}</b>${delta(cur.sets, avg.sets)}</section>
       <section class="card stat"><small>Time</small><b class="c-green">${fmtMin(cur.dur)}</b>${delta(cur.dur, avg.dur)}</section></div>
+    ${E.goalsOf(S).mobility ? (() => { const w = M.weeklySecs(S); return `<section class="card"><h3>Mobility this week</h3><p class="sub">Target about 10 min per area. Gains level off beyond that.</p><div class="mobbars">${M.areasFor(S).map(a => `<div><span>${M.AREAS[a]}</span><i><em style="width:${Math.min(100, w[a] / M.WEEKLY_TARGET_SECS * 100)}%"></em></i><small>${Math.floor(w[a] / 60)}/10</small></div>`).join('')}</div></section>`; })() : ''}
     <section class="card"><h3>Exercise progress</h3>${exIds.length ? exIds.map(id => { const b = E.bestFor(S, id); return `<button class="row link" data-a="exDetail" data-v="${id}"><div class="thumb sm">${muscleIcon(EX[id].primary, EX[id].secondary, 44)}</div><span class="grow">${EX[id].name}</span><small class="muted">${b.e1rm ? `e1RM ${E.fmtKg(Math.round(b.e1rm * 10) / 10)}` : `best ${b.reps}`}</small>${ICON.chev}</button>`; }).join('') : '<p class="muted small">Log a workout to see graphs here.</p>'}</section>
     <section class="card"><h3>${d.toLocaleDateString('en-AU', { month: 'long' })}</h3><p class="muted small">${wDays.size} workouts this month</p><div class="cal">${cal}</div></section>
     <section class="card"><h3>Latest workouts</h3>${S.workouts.slice(0, 6).map(w => { const st = E.workoutStats(w); return `<button class="row link" data-a="viewWorkout" data-v="${w.id}" data-from="progress"><div class="grow"><b>${esc(w.name)}</b><small class="muted">${shortDate(w.startedAt)} · ${fmtDur(st.dur)}</small></div>${st.prs ? `<span class="pill gold">${ICON.trophy} ${st.prs}</span>` : ''}</button>`; }).join('') || '<p class="muted small">Nothing yet.</p>'}</section>
@@ -379,6 +448,12 @@ function sheetHtml() {
   } else if (sh.type === 'adjust') {
     inner = `<h3>${sh.up ? 'Feeling strong' : 'Tough one'}</h3><p>${sh.up ? `That looked easy. Do the remaining sets at <b>${E.fmtKg(sh.weight)} kg</b>?` : `Drop the remaining sets to <b>${E.fmtKg(sh.weight)} kg</b> to stay in range?`}</p>
       <div class="row"><button class="btn primary big grow" data-a="applyAdjust">Yes</button><button class="btn big grow" data-a="closeSheet">Keep as is</button></div>`;
+  } else if (sh.type === 'recovery') {
+    const ready = E.readiness(S);
+    inner = `<h3>Recovery</h3><p class="sub">Estimated from your training and games. Tap a muscle if you're sore.</p>
+      <div class="mapwrap" data-a="mapTap">${recoveryMap(ready)}</div>
+      <div class="legend"><span style="--c:#2F7BFF">Fresh</span><span style="--c:#7aa8ff">Good</span><span style="--c:#f5a524">Tired</span><span style="--c:#e5484d">Sore</span></div>
+      <div class="mgrid">${Object.keys(MUSCLES).filter(m => m !== 'neck').map(m => `<button class="mcell" data-a="soreOpen" data-v="${m}"><span class="dot" style="background:${heatColor(ready[m])}"></span>${MUSCLES[m]}<b>${ready[m]}%</b>${S.soreness[m] ? '<em>sore</em>' : ''}</button>`).join('')}</div>`;
   } else if (sh.type === 'game') {
     inner = `<h3>When did you play?</h3><p class="muted small">Counts towards leg recovery.</p>
       ${[0, 1, 2].map(d => `<button class="btn wide" data-a="logGame" data-v="${d}">${d === 0 ? 'Today' : d === 1 ? 'Yesterday' : '2 days ago'}</button>`).join('')}`;
@@ -637,6 +712,12 @@ const A = {
   trimRest: () => { const a = S.active; a.exercises.forEach(e => { if (e.sets.every(s => !s.done)) { const k = e.sets.map(s => !s.warmup).lastIndexOf(true); if (e.sets.filter(s => !s.warmup).length > 2) e.sets.splice(k, 1); } }); a.trimmed = true; persistActive(); toast('Trimmed. Rough day noted.'); render(); },
   dismissTrim: () => { S.active.trimmed = true; S.active.roughDismissed = true; persistActive(); render(); },
   finish: finishWorkout,
+  recoveryOpen: () => { S.sheet = { type: 'recovery' }; render(); },
+  mobStart: () => mobStart(),
+  mobPause: () => { const m = S.mob; if (m.paused) { m.paused = false; m.end = Date.now() + m.remaining; } else { m.paused = true; m.remaining = Math.max(0, m.end - Date.now()); } render(); },
+  mobSkip: () => { const m = S.mob; const st = m.steps[m.i]; const done = m.phase === 'hold' ? Math.round(st.secs - Math.max(0, (m.paused ? m.remaining : m.end - Date.now())) / 1000) : 0; if (m.phase === 'prep') m.phase = 'hold'; mobAdvance(Math.max(0, done)); },
+  mobPrev: () => { const m = S.mob; m.i = Math.max(0, m.i - (m.phase === 'prep' ? 1 : 0)); m.phase = 'prep'; m.paused = false; m.end = Date.now() + M.PREP_SECS * 1000; render(); },
+  mobEnd: () => { const m = S.mob; if (m.phase === 'hold') { const st = m.steps[m.i]; const done = Math.round(st.secs - Math.max(0, (m.paused ? m.remaining : m.end - Date.now())) / 1000); m.secs[st.area] = (m.secs[st.area] || 0) + Math.max(0, done); } mobFinish(); },
   mobTick: (d) => { const s = currentSession(); const l = s.mobDone || []; s.mobDone = l.includes(d.v) ? l.filter(x => x !== d.v) : [...l, d.v]; if (S.active) persistActive(); render(); },
   askOpen: () => { S.sheet = { type: 'ask', text: '' }; render(); },
   askQuick: (d) => { const t = document.getElementById('askIn'); t.value = t.value ? `${t.value}. ${d.v}` : d.v; },
@@ -700,7 +781,11 @@ function updateSetField(i, j, f, raw) {
   if (!s.warmup && ((f === 'weight' && val != null && e.target.weight != null && val < e.target.weight - 0.01) || (f === 'reps' && val < e.target.reps))) e.lowered = true;
   persistActive(); render();
 }
-document.addEventListener('focusin', (ev) => { if (ev.target.classList?.contains('setin')) setTimeout(() => ev.target.select(), 0); });
+// Select the whole number on focus so typing replaces it (iOS clears a focus-time selection on mouseup, so redo it after).
+const selectAll = (el) => { try { el.setSelectionRange(0, el.value.length); } catch { el.select(); } };
+document.addEventListener('focusin', (ev) => { if (ev.target.classList?.contains('setin')) { selectAll(ev.target); setTimeout(() => selectAll(ev.target), 0); } });
+document.addEventListener('pointerup', (ev) => { if (ev.target.classList?.contains('setin') && document.activeElement === ev.target && !ev.target.dataset.sel) { ev.target.dataset.sel = '1'; setTimeout(() => selectAll(ev.target), 0); } });
+document.addEventListener('focusout', (ev) => { if (ev.target.classList?.contains('setin')) delete ev.target.dataset.sel; });
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.classList?.contains('setin')) ev.target.blur(); });
 
 // ---------------- events ----------------
@@ -712,7 +797,7 @@ document.addEventListener('click', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const el = ev.target;
-  if (el.dataset.a === 'draftGoal') { const st = draft().settings; st.goals = { ...(st.goals || {}), [el.dataset.f]: el.checked }; return; }
+  if (el.dataset.a === 'draftGoal') { const st = draft().settings; st.goals = { ...(st.goals || {}), [el.dataset.f]: el.checked }; if (el.dataset.f === 'mobility') render(); return; }
   if (el.id === 'commentsIn') { draft().settings.comments = el.value; return; }
   if (el.dataset.a === 'draftEq') { const d = draft(); d.equipment = el.checked ? [...new Set([...d.equipment, el.dataset.f])] : d.equipment.filter(k => k !== el.dataset.f); el.closest('.chip').classList.toggle('on', el.checked); return; }
   if (el.classList.contains('setin')) { updateSetField(Number(el.dataset.i), Number(el.dataset.j), el.dataset.f, el.value); return; }
@@ -766,6 +851,14 @@ document.addEventListener('touchend', () => {
 
 // ---------------- timers ----------------
 function tick() {
+  const m = S.mob;
+  if (m && S.view.name === 'mobility' && !m.paused) {
+    const st = m.steps[m.i]; const left = m.end - Date.now();
+    const total = (m.phase === 'prep' ? M.PREP_SECS : st.secs) * 1000; const C = 2 * Math.PI * 92;
+    const t = document.getElementById('mob-time'); if (t) t.textContent = Math.max(0, Math.ceil(left / 1000));
+    const r = document.getElementById('mob-ring'); if (r) r.setAttribute('stroke-dasharray', `${C * Math.min(1, 1 - left / total)} ${C}`);
+    if (left <= 0) { if (m.phase === 'hold') beep(); mobAdvance(m.phase === 'hold' ? st.secs : 0); return; }
+  }
   const a = S.active; if (!a) return;
   const wt = document.getElementById('wtimer'); if (wt) wt.textContent = fmtDur(Date.now() - a.startedAt);
   const mt = document.getElementById('mini-time'); if (mt) mt.textContent = fmtDur(Date.now() - a.startedAt);
@@ -802,7 +895,7 @@ DB.onAuth(async (user) => {
 function applyProfile(p) {
   for (const k of DB.PROFILE_KEYS) if (p[k] != null) S[k] = p[k];
   S.equipment = S.equipment?.length ? S.equipment : [...DEFAULT_EQUIPMENT];
-  S.excluded ||= []; S.boosted ||= []; S.gameSkips ||= []; S.games ||= []; S.soreness ||= {}; S.notes ||= {}; S.barOverrides ||= {}; S.bodyweight ||= []; S.reviews ||= {};
+  S.excluded ||= []; S.boosted ||= []; S.gameSkips ||= []; S.games ||= []; S.soreness ||= {}; S.notes ||= {}; S.barOverrides ||= {}; S.bodyweight ||= []; S.reviews ||= {}; S.mobilityLog ||= [];
   if (S.settings && !S.settings.goals) S.settings = { ...S.settings, goals: E.goalsOf(S) };
 }
 render();
