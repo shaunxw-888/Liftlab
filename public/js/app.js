@@ -159,7 +159,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.1</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.1.1</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -168,7 +168,8 @@ function homeScreen() {
   const now = Date.now();
   const { cards, done, total } = E.sessionCards(S, now);
   const ready = E.readiness(S, now);
-  const segs = Array.from({ length: total }, (_, i) => `<i class="${i < done.length ? 'on' : ''}"></i>`).join('');
+  // Weekly bar doubles as the swipe indicator: done sessions solid, the card being viewed highlighted.
+  const segs = Array.from({ length: total }, (_, i) => `<i class="${i < done.length ? 'on' : ''} ${i === done.length && i < total ? 'cur' : ''}" data-seg="${i}"></i>`).join('');
   const rel = E.gameRelation(S, now, true);
   const gd = S.settings.gameDay;
   const recentGames = (S.games || []).filter(t => now - t < 7 * 864e5).sort((a, b) => b - a);
@@ -190,7 +191,7 @@ function homeScreen() {
       <div class="seg small">${[30, 45, 60, 75, 90].map(m => `<button class="${m === mins ? 'on' : ''}" data-a="cardMin" data-k="${c.key}" data-v="${m}">${m}</button>`).join('')}</div>
       <button class="btn primary big wide" data-a="openCard" data-k="${c.key}">${S.active ? 'View session' : 'Start session'}</button>
     </section>`; }).join('')}</div>
-    ${cards.length > 1 ? `<div class="dots" id="dots">${cards.map((c, ci) => `<i class="${ci === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}`;
+`;
   }
   const later = cards.map(c => {
     const legs = ['quads', 'hamstrings', 'glutes'].filter(m => c.muscles.includes(m));
@@ -210,7 +211,7 @@ function homeScreen() {
   const worst = Object.entries(ready).filter(([m]) => m !== 'neck').sort((a, b) => a[1] - b[1]).slice(0, 2);
   return `<div class="screen">
     <header class="top col"><span class="cap">${new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</span><h1>This week</h1></header>
-    <div class="weekbar">${segs}</div><p class="sub">${done.length} of ${total} sessions done</p>
+    <div class="weekbar" id="weekbar" data-done="${done.length}">${segs}</div><p class="sub">${done.length} of ${total} sessions done</p>
     ${S.active ? `<button class="card resume" data-a="openSession"><span class="cap accent">In progress</span><b>${esc(S.active.name)}</b><small>Tap to resume</small></button>` : ''}
     ${cards.length ? upNext : `<section class="card hero center-text"><h2>Week done</h2><p class="sub">All ${total} sessions complete. Rest up, or add an extra one.</p><button class="btn wide" data-a="extraSession">Extra session</button></section>`}
     ${cards.length > 1 ? `<span class="cap block">Remaining this week · tap to pick</span><div class="list">${later}</div>` : ''}
@@ -805,11 +806,15 @@ function updateSetField(i, j, f, raw) {
 const selectAll = (el) => { try { el.setSelectionRange(0, el.value.length); } catch { el.select(); } };
 document.addEventListener('focusin', (ev) => { if (ev.target.classList?.contains('setin')) { selectAll(ev.target); setTimeout(() => selectAll(ev.target), 0); } });
 document.addEventListener('pointerup', (ev) => { if (ev.target.classList?.contains('setin') && document.activeElement === ev.target && !ev.target.dataset.sel) { ev.target.dataset.sel = '1'; setTimeout(() => selectAll(ev.target), 0); } });
-document.addEventListener('scroll', (ev) => {
-  const c = ev.target; if (c.id !== 'carousel') return;
-  const i = Math.round(c.scrollLeft / (c.firstElementChild?.offsetWidth + 12 || 1));
-  document.querySelectorAll('#dots i').forEach((d, k) => d.classList.toggle('on', k === i));
-}, true);
+function syncWeekbar() {
+  const c = document.getElementById('carousel'), bar = document.getElementById('weekbar'); if (!c || !bar) return;
+  const mid = c.scrollLeft + c.clientWidth / 2; let best = 0, bd = 1e9;
+  [...c.children].forEach((card, k) => { const d = Math.abs(card.offsetLeft + card.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = k; } });
+  const seg = Number(bar.dataset.done) + best;
+  bar.querySelectorAll('i').forEach((el, k) => el.classList.toggle('cur', k === seg));
+}
+let swRaf = 0;
+document.addEventListener('scroll', (ev) => { if (ev.target.id === 'carousel') { cancelAnimationFrame(swRaf); swRaf = requestAnimationFrame(syncWeekbar); } }, true);
 document.addEventListener('focusout', (ev) => { if (ev.target.classList?.contains('setin')) delete ev.target.dataset.sel; });
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.classList?.contains('setin')) ev.target.blur(); });
 

@@ -150,7 +150,9 @@ input.title-input { background: transparent; border: 0; font: 800 30px/1.1 var(-
 
 /* home */
 .weekbar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; margin: 16px 0 10px; } .weekbar i { height: 6px; border-radius: 6px; background: var(--card3); }
+.weekbar i { transition: background .2s, box-shadow .2s, transform .2s; }
 .weekbar i.on { background: var(--accent); }
+.weekbar i.cur { background: rgba(47, 123, 255, .45); box-shadow: 0 0 0 1.5px var(--accent); transform: scaleY(1.35); }
 .ready-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; }
 .rchip { font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 999px; background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); }
 .note.warn { color: var(--amber); font-size: 13px; font-weight: 600; }
