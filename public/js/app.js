@@ -24,6 +24,7 @@ const ICON = {
   flame: '<svg viewBox="0 0 24 24"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-6 2 1 3 3 3 3s1-3 0-7z"/></svg>',
   heart: '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>'
 };
 
@@ -59,7 +60,7 @@ function beep() {
 // ---------------- toast ----------------
 let toastTimer;
 function toast(msg, kind = '') { S.toast = { msg, kind }; renderToast(); clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = null; renderToast(); }, 3200); }
-function renderToast() { const t = document.getElementById('toast'); if (!t) return; t.innerHTML = S.toast ? `<div class="toast ${S.toast.kind}">${S.toast.msg}</div>` : ''; }
+function renderToast() { const t = document.getElementById('toast'); if (!t) return; t.innerHTML = S.toast ? `<div class="toast ${S.toast.kind}">${S.toast.msg}${S.toast.undo ? `<button class="toast-btn" data-a="undoDel">Undo</button>` : ''}</div>` : ''; }
 
 // ---------------- render ----------------
 let lastViewKey = '', lastViewName = 'home';
@@ -77,7 +78,7 @@ function render() {
   else if (!S.settings) body = setupScreen(true);
   else body = screen();
   const showTabs = S.uid && S.loaded && S.settings && !['exercise', 'summary', 'session', 'mobility'].includes(S.view.name);
-  $app.innerHTML = body + (showTabs ? miniBar() + tabBar() : '') + sheetHtml() + `<div id="toast"></div>`;
+  $app.innerHTML = body + (showTabs ? miniBar() + tabBar() : '') + sheetHtml() + holdHtml() + `<div id="toast"></div>`;
   renderToast();
   const nsc = document.querySelector('.screen'); if (nsc) { nsc.scrollTop = keep; if (anim) nsc.classList.add('anim-' + anim); }
   tick();
@@ -159,7 +160,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.2</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.3</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -257,7 +258,7 @@ function sessionScreen() {
     ${s.aiNote ? `<div class="badge">${ICON.spark} ${esc(s.aiNote)}</div>` : ''}
     ${lowered >= 2 && !s.trimmed ? `<div class="card note"><b>Rough day?</b><span>You've lowered a couple of lifts. Trim a set from the rest of the session? This won't count against your progression.</span><div class="row"><button class="btn small primary" data-a="trimRest">Trim</button><button class="btn small" data-a="dismissTrim">Keep going</button></div></div>` : ''}
     ${s.mobility?.length ? `<section class="card mob"><span class="cap">Mobility warm-up · ~4 min</span>${s.mobility.map(id => { const x = EX[id]; const on = (s.mobDone || []).includes(id);
-      return `<button class="row mobrow ${on ? 'on' : ''}" data-a="mobTick" data-v="${id}"><span class="mobchk">${on ? ICON.check : ''}</span><div class="grow"><b>${x.name}</b><small class="muted">${x.reps[0]}–${x.reps[1]}${unitOf(x) || ' reps'}${x.perSide ? ' per side' : ''} · ${x.reason}</small></div></button>`; }).join('')}</section>` : ''}
+      return `<div class="row mobrow ${on ? 'on' : ''}"><button class="mobchk" data-a="mobTick" data-v="${id}" aria-label="Mark done">${on ? ICON.check : ''}</button><div class="grow"><b>${x.name}</b><small class="muted">${x.reps[0]}–${x.reps[1]}${unitOf(x) || ' reps'}${x.perSide ? ' per side' : ''} · ${x.reason}</small></div>${x.unit === 's' && !on ? `<button class="btn small" data-a="holdMob" data-v="${id}">${ICON.play} ${x.reps[1]}s</button>` : ''}</div>`; }).join('')}</section>` : ''}
     <div class="row nopad listhead"><span class="cap">Exercises</span><div class="row tight"><small class="sub">Swipe left to swap</small><button class="btn small" data-a="addExercise">+ Add</button></div></div>
     <div class="exlist">${rows}</div>
     <div class="spacer"></div>
@@ -277,12 +278,14 @@ function exerciseScreen() {
     const pb = E.plateBreakdown(ex, s.weight, S);
     const plates = pb ? `<div class="plates">${pb.perSide.map(p => `<i style="height:${E.PLATE_HEIGHT[p]}px;background:${E.PLATE_COLOURS[p]};color:${E.PLATE_TEXT[p]}"><span>${E.fmtKg(p)}</span></i>`).join('')}</div>` : '<div class="plates none"></div>';
     const isNext = !s.done && j === e.sets.findIndex(x => !x.done);
-    return `<div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''} ${isNext && !preview ? 'next' : ''}">
-      ${preview ? `<div class="setnum">${label}</div>` : `<button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>`}
+    const timed = ex.unit === 's' && !s.done && !preview;
+    return `<div class="setwrap" data-setswipe="${i}-${j}"><button class="setdel" data-a="delSet" data-i="${i}" data-j="${j}">${ICON.trash}<span>Delete</span></button>
+      <div class="setrow ${s.done ? 'done' : ''} ${s.warmup ? 'warm' : ''} ${isNext && !preview ? 'next' : ''}">
+      ${preview ? `<div class="setnum">${label}</div>` : timed ? `<button class="setnum play" data-a="holdStart" data-i="${i}" data-j="${j}" aria-label="Start hold for set ${label}">${ICON.play}</button>` : `<button class="setnum" data-a="toggleSet" data-i="${i}" data-j="${j}">${s.done ? (s.pr ? ICON.trophy : ICON.check) : label}</button>`}
       <label class="cell"><input class="setin" inputmode="numeric" pattern="[0-9]*" data-i="${i}" data-j="${j}" data-f="reps" value="${s.reps ?? ''}"><small>${u || 'reps'}${ex.perSide ? '/side' : ''}</small></label>
       <label class="cell"><input class="setin" inputmode="decimal" data-i="${i}" data-j="${j}" data-f="weight" value="${s.weight != null ? E.fmtKg(s.weight) : ''}" placeholder="${ex.loading === 'bodyweight' ? 'BW' : 'Set'}"><small>${wLabel(ex)}</small></label>
       ${plates}
-    </div>${s.pr ? `<div class="prlabel">${ICON.trophy} ${s.pr}</div>` : ''}`;
+    </div></div>${s.pr ? `<div class="prlabel">${ICON.trophy} ${s.pr}</div>` : ''}`;
   }).join('');
   const next = a.exercises.findIndex((x, k) => k > i && x.sets.some(s => !s.done));
   const rest = a.rest;
@@ -667,6 +670,60 @@ function reviewCard(thisWeek) {
     <h4>Next week</h4><p>${esc(r.change)}</p><button class="btn small ghost" data-a="review">${S.busy === 'review' ? '<span class="spinner sm"></span>' : 'Refresh'}</button></section>`;
 }
 
+
+// ---------------- hold timer (timed sets and before-gym mobility drills) ----------------
+const HOLD_PREP = 3, HOLD_SWITCH = 5;
+function holdHtml() {
+  const h = S.hold; if (!h) return '';
+  const left = h.paused ? h.remaining : Math.max(0, h.end - Date.now());
+  const total = (h.phase === 'hold' ? h.secs : h.phase === 'switch' ? HOLD_SWITCH : HOLD_PREP) * 1000;
+  const C = 2 * Math.PI * 92;
+  const label = h.phase === 'prep' ? 'Get ready' : h.phase === 'switch' ? 'Switch sides' : h.paused ? 'Paused' : 'Hold';
+  return `<div class="holdov"><div class="holdbox">
+    <span class="cap accent">${esc(h.name)}${h.sides === 2 ? ` · ${h.side ? 'Right' : 'Left'} side` : ''}</span>
+    <div class="ringwrap"><svg viewBox="0 0 200 200" width="250" height="250"><circle cx="100" cy="100" r="92" class="rbg"/><circle id="hold-ring" cx="100" cy="100" r="92" class="rfg ${h.phase === 'hold' ? '' : 'prep'}" stroke-dasharray="${C * Math.min(1, 1 - left / total)} ${C}" transform="rotate(-90 100 100)"/></svg>
+      <div class="ringtext"><span class="cap">${label}</span><b class="mono" id="hold-time">${Math.ceil(left / 1000)}</b><small class="sub">${h.secs}s hold</small></div></div>
+    <div class="row center gap"><button class="btn big" data-a="holdCancel">${h.phase === 'hold' && !h.preview ? 'Stop' : 'Cancel'}</button><button class="btn primary big" data-a="holdPause">${h.paused ? 'Resume' : 'Pause'}</button></div>
+  </div></div>`;
+}
+function holdBegin(h) { unlockAudio(); S.hold = { ...h, side: 0, phase: 'prep', end: Date.now() + HOLD_PREP * 1000, paused: false, remaining: 0, held: [] }; render(); }
+function holdNext() {
+  const h = S.hold;
+  if (h.phase === 'prep' || h.phase === 'switch') { h.phase = 'hold'; h.end = Date.now() + h.secs * 1000; return render(); }
+  beep(); h.held[h.side] = h.secs;
+  if (h.sides === 2 && h.side === 0) { h.side = 1; h.phase = 'switch'; h.end = Date.now() + HOLD_SWITCH * 1000; return render(); }
+  holdDone(true);
+}
+function holdDone(complete) {
+  const h = S.hold; S.hold = null;
+  if (h.kind === 'mob') {
+    if (complete) { const s = currentSession(); s.mobDone = [...new Set([...(s.mobDone || []), h.id])]; if (S.active) persistActive(); }
+    return render();
+  }
+  const e = S.active?.exercises[h.i]; const set = e?.sets[h.j]; if (!set) return render();
+  const held = h.held.filter(x => x != null);
+  if (!held.length) return render(); // cancelled before holding anything
+  set.reps = Math.round(Math.min(...held));
+  toggleSet(h.i, h.j);
+}
+function holdStop() {
+  const h = S.hold;
+  if (h.phase === 'hold') { const done = Math.round(h.secs - (h.paused ? h.remaining : Math.max(0, h.end - Date.now())) / 1000); if (done >= 1) h.held[h.side] = done; }
+  holdDone(false);
+}
+
+// ---------------- delete a set (swipe right) ----------------
+let lastDeleted = null;
+function deleteSet(i, j) {
+  const e = currentSession()?.exercises[i]; if (!e) return;
+  const [set] = e.sets.splice(j, 1);
+  lastDeleted = { i, j, set, ex: e };
+  const a = S.active; if (a?.rest?.setKey === `${i}-${j}`) a.rest = null;
+  if (S.active) persistActive();
+  S.toast = { msg: `Set deleted`, undo: true }; clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = null; lastDeleted = null; renderToast(); }, 4500);
+  render();
+}
+
 // ---------------- actions ----------------
 const A = {
   tab: (d) => { S.view = { name: d.v === 'train' ? 'home' : d.v }; if (d.v === 'settings') S.setupDraft = null; render(); },
@@ -724,6 +781,12 @@ const A = {
   trimRest: () => { const a = S.active; a.exercises.forEach(e => { if (e.sets.every(s => !s.done)) { const k = e.sets.map(s => !s.warmup).lastIndexOf(true); if (e.sets.filter(s => !s.warmup).length > 2) e.sets.splice(k, 1); } }); a.trimmed = true; persistActive(); toast('Trimmed. Rough day noted.'); render(); },
   dismissTrim: () => { S.active.trimmed = true; S.active.roughDismissed = true; persistActive(); render(); },
   finish: finishWorkout,
+  holdStart: (d) => { const e = S.active.exercises[d.i]; const ex = EX[e.exId]; const set = e.sets[d.j]; holdBegin({ kind: 'set', i: Number(d.i), j: Number(d.j), name: ex.name, secs: Number(set.reps) || ex.reps[1], sides: ex.perSide ? 2 : 1 }); },
+  holdMob: (d) => { const ex = EX[d.v]; holdBegin({ kind: 'mob', id: d.v, name: ex.name, secs: ex.reps[1], sides: ex.perSide ? 2 : 1, preview: true }); },
+  holdPause: () => { const h = S.hold; if (h.paused) { h.paused = false; h.end = Date.now() + h.remaining; } else { h.paused = true; h.remaining = Math.max(0, h.end - Date.now()); } render(); },
+  holdCancel: () => holdStop(),
+  delSet: (d) => deleteSet(Number(d.i), Number(d.j)),
+  undoDel: () => { const u = lastDeleted; if (!u) return; u.ex.sets.splice(u.j, 0, u.set); lastDeleted = null; if (S.active) persistActive(); S.toast = null; render(); },
   setRir: (d) => { const e = S.active.exercises[d.i]; e.rir = e.rir === d.v ? null : d.v; persistActive(); render(); },
   setRirSaved: (d) => { const w = S.workouts.find(x => x.id === d.w); const e = w?.exercises[Number(d.k)]; if (!e) return; e.rir = e.rir === d.v ? null : d.v; delete e.firstRir; DB.saveWorkout(S, w); render(); },
   cardFocus: (d) => { const el = document.getElementById('card-' + d.k); el?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); document.querySelector('.screen')?.scrollTo({ top: 0, behavior: 'smooth' }); },
@@ -863,6 +926,29 @@ document.addEventListener('touchend', () => {
   else sh.style.transform = '';
 });
 
+// Swipe right on a set row to reveal Delete.
+let ss = null, openSet = null;
+const closeOpenSet = () => { if (openSet) { openSet.querySelector('.setrow').style.transform = ''; openSet.classList.remove('open'); openSet = null; } };
+document.addEventListener('touchstart', (ev) => {
+  const w = ev.target.closest('[data-setswipe]');
+  if (openSet && (!w || w !== openSet) && !ev.target.closest('.setdel')) closeOpenSet();
+  if (!w || ev.target.closest('.setdel')) return;
+  ss = { w, row: w.querySelector('.setrow'), x: ev.touches[0].clientX, y: ev.touches[0].clientY, dx: 0, lock: null, base: w === openSet ? 92 : 0 };
+}, { passive: true });
+document.addEventListener('touchmove', (ev) => {
+  if (!ss) return; const dx = ev.touches[0].clientX - ss.x, dy = ev.touches[0].clientY - ss.y;
+  if (ss.lock == null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) ss.lock = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  if (ss.lock !== 'x') return;
+  ss.dx = Math.max(0, Math.min(140, ss.base + dx)); ss.row.style.transition = 'none'; ss.row.style.transform = `translateX(${ss.dx}px)`;
+  document.activeElement?.blur?.();
+}, { passive: true });
+document.addEventListener('touchend', () => {
+  if (!ss) return; const { w, row, dx, lock } = ss; ss = null; if (lock !== 'x') return;
+  row.style.transition = 'transform .2s';
+  if (dx > 60) { row.style.transform = 'translateX(92px)'; w.classList.add('open'); openSet = w; } else { row.style.transform = ''; w.classList.remove('open'); if (openSet === w) openSet = null; }
+  const stop = (e) => { e.stopPropagation(); e.preventDefault(); }; document.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 50);
+});
+
 // Swipe left on an exercise row to swap.
 let sw = null;
 document.addEventListener('touchstart', (ev) => { const w = ev.target.closest('[data-swipe]'); if (!w) return; sw = { w, row: w.querySelector('.exrow'), x: ev.touches[0].clientX, y: ev.touches[0].clientY, dx: 0, lock: null }; }, { passive: true });
@@ -881,6 +967,13 @@ document.addEventListener('touchend', () => {
 
 // ---------------- timers ----------------
 function tick() {
+  const h = S.hold;
+  if (h && !h.paused) {
+    const left = h.end - Date.now(); const total = (h.phase === 'hold' ? h.secs : h.phase === 'switch' ? HOLD_SWITCH : HOLD_PREP) * 1000; const C = 2 * Math.PI * 92;
+    const t = document.getElementById('hold-time'); if (t) t.textContent = Math.max(0, Math.ceil(left / 1000));
+    const r = document.getElementById('hold-ring'); if (r) r.setAttribute('stroke-dasharray', `${C * Math.min(1, 1 - left / total)} ${C}`);
+    if (left <= 0) { holdNext(); return; }
+  }
   const m = S.mob;
   if (m && S.view.name === 'mobility' && !m.paused && m.phase !== 'overview') {
     const st = m.steps[m.i]; const left = m.end - Date.now();
