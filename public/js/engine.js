@@ -184,7 +184,7 @@ export function exerciseHistory(state, exId, beforeTime = Infinity) {
     const e = w.exercises.find(x => x.exId === exId);
     if (!e) continue;
     const sets = e.sets.filter(s => s.done && !s.warmup);
-    if (sets.length) out.push({ at: w.startedAt, rough: !!w.rough, workoutId: w.id, sets, rir: e.firstRir || null, range: e.target?.lo ? [e.target.lo, e.target.hi] : null });
+    if (sets.length) out.push({ at: w.startedAt, rough: !!w.rough, workoutId: w.id, sets, rir: e.rir || e.firstRir || null, range: e.target?.lo ? [e.target.lo, e.target.hi] : null });
   }
   return out.sort((a, b) => b.at - a.at);
 }
@@ -266,8 +266,9 @@ export function suggestTarget(state, exId, now = Date.now(), heavy = false) {
     return { weight: w, reps: lo, lo, hi, reason: `+${fmtKg(w - top)} kg: hit ${hi} on every set${easy ? ' with reps to spare' : ''}` };
   }
   if (minReps >= lo) {
-    const reps = Math.min(hi, minReps + 1);
-    return { weight: top, reps, lo, hi, reason: `Same weight, aim for ${reps}` };
+    if (last.rir === '0') return { weight: top, reps: minReps, lo, hi, reason: `Same weight and reps: last set was all-out, own it first` };
+    const reps = Math.min(hi, minReps + (last.rir === '3+' ? 2 : 1));
+    return { weight: top, reps, lo, hi, reason: `Same weight, aim for ${reps}${last.rir === '3+' ? ': last set had reps to spare' : ''}` };
   }
   const prev = hist[1];
   const prevBelow = prev && Math.min(...prev.sets.map(s => s.reps)) < lo;

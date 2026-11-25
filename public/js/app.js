@@ -159,7 +159,7 @@ function setupScreen(first) {
       ${bw ? `<p class="muted small">Last: ${bw.kg} kg on ${shortDate(bw.at)}</p>` : ''}</section>
       <section class="card"><h3>Excluded exercises</h3>${S.excluded.length ? S.excluded.map(id => `<div class="row"><span>${EX[id]?.name || id}</span><button class="btn small" data-a="unexclude" data-v="${id}">Restore</button></div>`).join('') : '<p class="muted small">None</p>'}</section>` : ''}
     <button class="btn primary big wide" data-a="saveSetup" ${S.busy ? 'disabled' : ''}>${S.busy === 'goals' ? '<span class="spinner sm"></span> Claude is updating your plan' : first ? 'Build my week' : 'Save'}</button>
-    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.1.1</p>' : ''}
+    ${!first ? '<button class="btn ghost wide" data-a="signOut">Sign out</button><p class="muted small center-text">Liftlab v2.2</p>' : ''}
     <div class="spacer"></div></div>`;
 }
 
@@ -265,6 +265,7 @@ function sessionScreen() {
   </div>`;
 }
 
+const rirRow = (cur, attrs) => `<div class="rirrow"><span class="cap">Last set: reps left</span><div class="rirchips">${[['3+', 'g'], ['1-2', 'y'], ['0', 'r']].map(([v, c]) => `<button class="rc ${c} ${cur === v ? 'sel' : ''}" ${attrs} data-v="${v}">${v === '1-2' ? '1–2' : v}</button>`).join('')}</div></div>`;
 // ---------------- exercise logging ----------------
 function exerciseScreen() {
   const a = currentSession(); const preview = !S.active; const i = S.view.i; const e = a?.exercises[i];
@@ -295,6 +296,7 @@ function exerciseScreen() {
     <div class="badge">${ICON.spark} ${esc(t.reason)}</div>
     <div class="sethead"><span>Set</span><span>${u === 's' ? 'Secs' : u === 'm' ? 'Metres' : 'Reps'}</span><span>${ex.loading === 'dumbbell' ? 'kg each' : 'Weight'}</span><span>${E.plateBreakdown(ex, 100, S) ? 'Plates per side' : ''}</span></div>
     <div class="sets">${rows}</div>
+    ${!preview && e.sets.filter(x => !x.warmup).every(x => x.done) ? rirRow(e.rir, `data-a="setRir" data-i="${i}"`) : ''}
     <button class="btn dashed wide" data-a="addSet" data-v="${i}">+ Add set</button>
     ${(() => { const h = E.exerciseHistory(S, e.exId).slice(0, 3); return h.length ? `<section class="card"><h3>Last sessions</h3>${h.map(x => `<div class="row"><small class="muted">${shortDate(x.at)}</small><span>${x.sets.map(z => `${z.reps}${u}×${z.weight ?? 'BW'}`).join(', ')}</span></div>`).join('')}</section>` : ''; })()}
     <section class="card"><h3>Notes</h3><textarea id="noteIn" data-ex="${e.exId}" placeholder="Seat height, grip, cues… carries over to next time">${esc(S.notes[e.exId] || '')}</textarea></section>
@@ -372,7 +374,9 @@ function summaryScreen() {
     <section class="card"><h3>Exercises</h3>${w.exercises.filter(e => e.sets.some(s => s.done)).map(e => {
       const ex = EX[e.exId]; const ws = e.sets.filter(s => s.done && !s.warmup); const best = ws.reduce((b, s) => E.e1rm(s.weight, s.reps) >= E.e1rm(b.weight, b.reps) ? s : b, ws[0] || {});
       const pr = e.sets.find(s => s.pr);
-      return `<button class="row link" data-a="exDetail" data-v="${e.exId}"><div class="thumb sm">${muscleIcon(ex.primary, ex.secondary, 44)}</div><div class="grow"><b>${ex.name}</b><small class="muted">${ws.length} sets · best ${best.reps}${unitOf(ex)} × ${best.weight ?? 'BW'}${best.weight ? ' kg' : ''}</small></div>${pr ? `<span class="pill gold">${ICON.trophy} ${pr.pr.split(' ')[0]}</span>` : ''}</button>`;
+      const k = w.exercises.indexOf(e);
+      return `<div class="sumex"><button class="row link" data-a="exDetail" data-v="${e.exId}"><div class="thumb sm">${muscleIcon(ex.primary, ex.secondary, 44)}</div><div class="grow"><b>${ex.name}</b><small class="muted">${ws.length} sets · best ${best.reps}${unitOf(ex)} × ${best.weight ?? 'BW'}${best.weight ? ' kg' : ''}</small></div>${pr ? `<span class="pill gold">${ICON.trophy} ${pr.pr.split(' ')[0]}</span>` : ''}</button>
+        ${ws.length ? rirRow(e.rir || e.firstRir, `data-a="setRirSaved" data-w="${w.id}" data-k="${k}"`) : ''}</div>`;
     }).join('')}</section>
     <button class="btn primary big wide" data-a="tab" data-v="${S.view.from || 'train'}">Done</button><div class="spacer"></div></div>`;
 }
@@ -457,7 +461,7 @@ function sheetHtml() {
       <label class="row toggle"><span>Apply to remaining sets</span><input type="checkbox" id="applyRest" ${sh.applyRest ? 'checked' : ''}></label>
       <button class="btn primary big wide" data-a="sheetSave">Done</button>`;
   } else if (sh.type === 'rir') {
-    inner = `<span class="kicker red">EXERTION</span><h3>How many more reps could you have done?</h3><p class="muted small">Only asked on your main lifts. Helps pick today's weights.</p>
+    inner = `<span class="kicker red">EXERTION · ${EX[S.active.exercises[sh.i].exId].name}</span><h3>On your last set, how many more reps could you have done?</h3><p class="sub">Sets next session's weight. You can change it later on the exercise or the summary.</p>
       <div class="rir"><button class="g" data-a="rir" data-v="3+">3+</button><button class="y" data-a="rir" data-v="1-2">1–2</button><button class="r" data-a="rir" data-v="0">0</button></div><button class="btn ghost wide" data-a="closeSheet">Skip</button>`;
   } else if (sh.type === 'adjust') {
     inner = `<h3>${sh.up ? 'Feeling strong' : 'Tough one'}</h3><p>${sh.up ? `That looked easy. Do the remaining sets at <b>${E.fmtKg(sh.weight)} kg</b>?` : `Drop the remaining sets to <b>${E.fmtKg(sh.weight)} kg</b> to stay in range?`}</p>
@@ -560,9 +564,9 @@ function toggleSet(i, j) {
   }
   startRest(a, e, s); if (a.rest) a.rest.setKey = `${i}-${j}`;
   const working = e.sets.filter(x => !x.warmup);
-  const isFirstWorking = !s.warmup && working.indexOf(s) === 0;
+  const finishedExercise = !s.warmup && working.length && working.every(x => x.done);
   persistActive();
-  if (isFirstWorking && mainLift(a, i) && !e.firstRir) { S.sheet = { type: 'rir', i, j }; return render(); }
+  if (finishedExercise && !e.rir) { S.sheet = { type: 'rir', i, j }; return render(); }
   advanceAfterSet(i);
 }
 function advanceAfterSet(i) {
@@ -578,15 +582,9 @@ function advanceAfterSet(i) {
 }
 function onRir(v) {
   const sh = S.sheet; const a = S.active; const e = a.exercises[sh.i]; const s = e.sets[sh.j]; const ex = EX[e.exId];
-  e.firstRir = v; S.sheet = null;
-  if (!e.adjusted && s.weight != null) {
-    const inc = E.incFor(ex);
-    if (v === '3+' && s.reps >= e.target.reps) S.sheet = { type: 'adjust', i: sh.i, up: true, weight: s.weight + inc * (s.reps >= e.target.hi ? 2 : 1) };
-    else if (v === '0' && s.reps < e.target.lo) S.sheet = { type: 'adjust', i: sh.i, up: false, weight: Math.max(inc, E.roundTo(s.weight * 0.93, inc)) };
-  }
+  e.rir = v; S.sheet = null;
   persistActive();
-  if (!S.sheet) return advanceAfterSet(sh.i);
-  render();
+  advanceAfterSet(sh.i);
 }
 function applyAdjust() {
   const sh = S.sheet; const e = S.active.exercises[sh.i];
@@ -599,7 +597,7 @@ function finishWorkout() {
   if (left && S.sheet?.type !== 'finish') { S.sheet = { type: 'finish', left }; return render(); }
   S.sheet = null;
   const w = { id: a.id, name: a.name, templateKey: a.templateKey, type: a.type, startedAt: a.startedAt, endedAt: Date.now(),
-    exercises: a.exercises.map(e => ({ exId: e.exId, target: e.target, firstRir: e.firstRir || null, lowered: !!e.lowered, sets: e.sets.filter(s => s.done) })).filter(e => e.sets.length) };
+    exercises: a.exercises.map(e => ({ exId: e.exId, target: e.target, rir: e.rir || e.firstRir || null, lowered: !!e.lowered, sets: e.sets.filter(s => s.done) })).filter(e => e.sets.length) };
   const under = w.exercises.filter(e => e.lowered || (e.target?.reps && e.sets.filter(s => !s.warmup).some(s => s.reps < e.target.reps - 1))).length;
   w.rough = under >= 2 || !!a.trimmed;
   if (!w.exercises.length) { S.active = null; persistActive(); S.view = { name: 'home' }; toast('Nothing logged, workout discarded'); return render(); }
@@ -726,6 +724,8 @@ const A = {
   trimRest: () => { const a = S.active; a.exercises.forEach(e => { if (e.sets.every(s => !s.done)) { const k = e.sets.map(s => !s.warmup).lastIndexOf(true); if (e.sets.filter(s => !s.warmup).length > 2) e.sets.splice(k, 1); } }); a.trimmed = true; persistActive(); toast('Trimmed. Rough day noted.'); render(); },
   dismissTrim: () => { S.active.trimmed = true; S.active.roughDismissed = true; persistActive(); render(); },
   finish: finishWorkout,
+  setRir: (d) => { const e = S.active.exercises[d.i]; e.rir = e.rir === d.v ? null : d.v; persistActive(); render(); },
+  setRirSaved: (d) => { const w = S.workouts.find(x => x.id === d.w); const e = w?.exercises[Number(d.k)]; if (!e) return; e.rir = e.rir === d.v ? null : d.v; delete e.firstRir; DB.saveWorkout(S, w); render(); },
   cardFocus: (d) => { const el = document.getElementById('card-' + d.k); el?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); document.querySelector('.screen')?.scrollTo({ top: 0, behavior: 'smooth' }); },
   recoveryOpen: () => { S.sheet = { type: 'recovery' }; render(); },
   mobStart: () => mobStart(),
